@@ -117,3 +117,5 @@ data class FileHitRow(
     val seriesId: Long?,
     val isAvailable: Boolean
 )
+
+data class UserListRow(val id: Long, val name: String, val itemCount: Int)

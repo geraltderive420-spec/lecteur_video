@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -62,6 +63,7 @@ import androidx.paging.compose.itemKey
 import com.lecteur.core.designsystem.components.EmptyState
 import com.lecteur.core.designsystem.components.ItemActionsSheet
 import com.lecteur.core.designsystem.components.LibraryListRow
+import com.lecteur.core.designsystem.components.ListPickerSheet
 import com.lecteur.core.designsystem.components.LoadingBox
 import com.lecteur.core.designsystem.components.PosterCard
 import com.lecteur.core.model.LibraryFilters
@@ -90,7 +92,9 @@ fun LibraryHost(
     modifier: Modifier = Modifier,
     scope: LibraryFilters = LibraryFilters(),
     scopeLabel: String? = null,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    /** Shows the "my lists" button; the top-level library passes it, scoped screens do not. */
+    onOpenLists: (() -> Unit)? = null
 ) {
     // A saga holds films only: a series tab under it would list every series of the library
     val sections = if (scope.collectionId != null) listOf(LibrarySection.MOVIES) else LibrarySection.entries
@@ -106,7 +110,10 @@ fun LibraryHost(
                     navigationIcon = {
                         if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour") }
                     },
-                    actions = { IconButton(onClick = onOpenSearch) { Icon(Icons.Rounded.Search, contentDescription = "Rechercher") } }
+                    actions = {
+                        if (onOpenLists != null) IconButton(onClick = onOpenLists) { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "Mes listes") }
+                        IconButton(onClick = onOpenSearch) { Icon(Icons.Rounded.Search, contentDescription = "Rechercher") }
+                    }
                 )
                 if (sections.size > 1) {
                     TabRow(selectedTabIndex = sections.indexOf(selected)) {
@@ -225,8 +232,14 @@ private fun LibraryPage(
             onToggleWatched = { viewModel.toggleWatched(item) },
             onToggleFavorite = { viewModel.toggleFavorite(item) },
             onOpenDetails = { open(item) },
-            onDismiss = { sheetItem = null }
+            onDismiss = { sheetItem = null },
+            onAddToList = { viewModel.addToList(item) }
         )
+    }
+
+    val picker by viewModel.listPicker.state.collectAsStateWithLifecycle()
+    picker?.let {
+        ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
     }
 }
 

@@ -35,6 +35,7 @@ import com.lecteur.core.data.library.ContinueItem
 import com.lecteur.core.data.library.NextUpItem
 import com.lecteur.core.designsystem.components.EmptyState
 import com.lecteur.core.designsystem.components.ItemActionsSheet
+import com.lecteur.core.designsystem.components.ListPickerSheet
 import com.lecteur.core.designsystem.components.LandscapeCard
 import com.lecteur.core.designsystem.components.LoadingBox
 import com.lecteur.core.designsystem.components.PosterCard
@@ -130,8 +131,14 @@ fun HomeScreen(
             onToggleWatched = { viewModel.setWatched(item, item.watch != com.lecteur.core.model.WatchStatus.WATCHED) },
             onToggleFavorite = { viewModel.toggleFavorite(item) },
             onOpenDetails = { openItem(item) },
-            onDismiss = { sheetItem = null }
+            onDismiss = { sheetItem = null },
+            onAddToList = { viewModel.addToList(item) }
         )
+    }
+
+    val picker by viewModel.listPicker.state.collectAsStateWithLifecycle()
+    picker?.let {
+        ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
     }
 }
 

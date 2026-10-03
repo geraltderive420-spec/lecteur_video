@@ -6,6 +6,8 @@ import com.lecteur.core.data.library.ContinueItem
 import com.lecteur.core.data.library.FolderRepository
 import com.lecteur.core.data.library.HomeRepository
 import com.lecteur.core.data.library.ItemActions
+import com.lecteur.core.data.library.ListPickerModel
+import com.lecteur.core.data.library.UserListsRepository
 import com.lecteur.core.data.library.NextUpItem
 import com.lecteur.core.data.playback.PlayPlanner
 import com.lecteur.core.data.settings.HomeLayoutRepository
@@ -67,8 +69,13 @@ class HomeViewModel @Inject constructor(
     layout: HomeLayoutRepository,
     folders: FolderRepository,
     private val planner: PlayPlanner,
-    private val actions: ItemActions
+    private val actions: ItemActions,
+    lists: UserListsRepository
 ) : ViewModel() {
+
+    val listPicker = ListPickerModel(lists, viewModelScope)
+
+    fun addToList(item: LibraryItem) = listPicker.open(item.kind, item.id, item.title)
 
     private data class Top(val continueItems: List<ContinueItem>, val nextUp: List<NextUpItem>, val recent: List<LibraryItem>)
     private data class Shelves(val movies: List<LibraryItem>, val series: List<LibraryItem>, val unwatched: List<LibraryItem>, val favorites: List<LibraryItem>)

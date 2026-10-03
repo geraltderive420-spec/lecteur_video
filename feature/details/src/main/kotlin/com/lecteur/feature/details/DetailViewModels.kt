@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.lecteur.core.data.details.DetailRepository
 import com.lecteur.core.data.identify.MetadataRepository
 import com.lecteur.core.data.library.FavoritesRepository
+import com.lecteur.core.data.library.ListPickerModel
+import com.lecteur.core.data.library.UserListsRepository
 import com.lecteur.core.data.library.WatchedRepository
 import com.lecteur.core.data.playback.PlayPlanner
 import com.lecteur.core.model.EpisodeItem
@@ -56,8 +58,11 @@ class MovieDetailViewModel @Inject constructor(
     private val planner: PlayPlanner,
     private val watched: WatchedRepository,
     private val favorites: FavoritesRepository,
-    private val metadata: MetadataRepository
+    private val metadata: MetadataRepository,
+    lists: UserListsRepository
 ) : ViewModel() {
+
+    val listPicker = ListPickerModel(lists, viewModelScope)
 
     private val movieId: Long = checkNotNull(savedState.get<Long>("movieId")) { "movieId is missing from the navigation arguments" }
 
@@ -91,6 +96,11 @@ class MovieDetailViewModel @Inject constructor(
         viewModelScope.launch { favorites.toggleMovie(movieId) }
     }
 
+    fun openListPicker() {
+        val movie = (state.value as? DetailState.Ready)?.value?.movie ?: return
+        listPicker.open(MediaKind.MOVIE, movieId, movie.title)
+    }
+
     fun refresh() {
         if (_refreshing.value) return
         _refreshing.value = true
@@ -116,8 +126,11 @@ class SeriesDetailViewModel @Inject constructor(
     private val planner: PlayPlanner,
     private val watched: WatchedRepository,
     private val favorites: FavoritesRepository,
-    private val metadata: MetadataRepository
+    private val metadata: MetadataRepository,
+    lists: UserListsRepository
 ) : ViewModel() {
+
+    val listPicker = ListPickerModel(lists, viewModelScope)
 
     private val seriesId: Long = checkNotNull(savedState.get<Long>("seriesId")) { "seriesId is missing from the navigation arguments" }
 
@@ -156,6 +169,11 @@ class SeriesDetailViewModel @Inject constructor(
 
     fun toggleFavorite() {
         viewModelScope.launch { favorites.toggleSeries(seriesId) }
+    }
+
+    fun openListPicker() {
+        val series = (state.value as? DetailState.Ready)?.value?.series ?: return
+        listPicker.open(MediaKind.SERIES, seriesId, series.title)
     }
 
     fun setLanguages(audio: String?, subtitles: String?) {

@@ -165,3 +165,12 @@ data class PlayPlan(
         require(startIndex in entries.indices) { "startIndex $startIndex outside ${entries.indices}" }
     }
 }
+
+/** A personal list as shown on the lists screen. */
+data class UserListSummary(val id: Long, val name: String, val itemCount: Int, val isFavorites: Boolean)
+
+/** One line of the "add to a list" picker: a list, and whether the title is already in it. */
+data class ListChoice(val id: Long, val name: String, val isMember: Boolean)
+
+/** What the "add to a list" sheet shows while it is open. */
+data class ListPickerState(val title: String, val choices: List<ListChoice>, val error: String? = null)

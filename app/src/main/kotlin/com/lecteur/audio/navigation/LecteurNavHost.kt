@@ -49,6 +49,7 @@ import com.lecteur.feature.home.HomeScreen
 import com.lecteur.feature.home.WelcomeScreen
 import com.lecteur.feature.library.FolderExplorerScreen
 import com.lecteur.feature.library.LibraryHost
+import com.lecteur.feature.library.ListsScreen
 import com.lecteur.feature.library.SearchScreen
 import com.lecteur.feature.scanner.ui.CorrectionScreen
 import com.lecteur.feature.scanner.ui.FoldersScreen
@@ -171,7 +172,10 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
 
         composable(Screen.Library.route, arguments = listOf(navArgument("section") { type = NavType.StringType })) { entry ->
             val section = runCatching { LibrarySection.valueOf(entry.arguments?.getString("section").orEmpty()) }.getOrDefault(LibrarySection.MOVIES)
-            LibraryHost(initialSection = section, onOpenMovie = openMovie, onOpenSeries = openSeries, onOpenSearch = openSearch, onPlay = onPlay)
+            LibraryHost(
+                initialSection = section, onOpenMovie = openMovie, onOpenSeries = openSeries, onOpenSearch = openSearch, onPlay = onPlay,
+                onOpenLists = { nav.navigate(Screen.Lists.route) { launchSingleTop = true } }
+            )
         }
 
         composable(Screen.Explorer.route) {
@@ -255,6 +259,10 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
         }
 
         composable(Screen.Remote.route) { RemoteScreen(onBack = back) }
+
+        composable(Screen.Lists.route) {
+            ListsScreen(onBack = back, onOpenList = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.LIST, id) })
+        }
 
         composable(Screen.Welcome.route) {
             WelcomeScreen(

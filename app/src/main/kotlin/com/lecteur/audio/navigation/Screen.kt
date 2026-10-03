@@ -6,7 +6,7 @@ import com.lecteur.core.model.MediaKind
 
 /** What a "browse by" entry narrows the library to. */
 enum class BrowseKind {
-    GENRE, PERSON, COLLECTION, DECADE;
+    GENRE, PERSON, COLLECTION, DECADE, LIST;
 
     /** The filters that list the titles of this entry; [id] is a genre, person or collection id, or the first year of a decade. */
     fun scope(id: Long): LibraryFilters = when (this) {
@@ -14,6 +14,7 @@ enum class BrowseKind {
         PERSON -> LibraryFilters(personId = id)
         COLLECTION -> LibraryFilters(collectionId = id)
         DECADE -> LibraryFilters(yearFrom = id.toInt(), yearTo = id.toInt() + 9)
+        LIST -> LibraryFilters(userListId = id)
     }
 }
 
@@ -46,6 +47,7 @@ sealed class Screen(val route: String) {
     }
     data object Welcome : Screen("welcome")
     data object Remote : Screen("remote")
+    data object Lists : Screen("lists")
 
     companion object {
         /**

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RemoveRedEye
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -39,7 +40,9 @@ fun ItemActionsSheet(
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenDetails: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Null hides the line (a screen that has no list picker). */
+    onAddToList: (() -> Unit)? = null
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
@@ -58,6 +61,7 @@ fun ItemActionsSheet(
                 if (isFavorite == true) "Retirer des favoris" else "Ajouter aux favoris",
                 isFavorite != null
             ) { onDismiss(); onToggleFavorite() }
+            if (onAddToList != null) ActionRow(Icons.Rounded.PlaylistAdd, "Ajouter à une liste", true) { onDismiss(); onAddToList() }
             ActionRow(Icons.Rounded.Info, "Voir la fiche", true) { onDismiss(); onOpenDetails() }
         }
     }

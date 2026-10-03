@@ -52,7 +52,8 @@ class MainViewModel @Inject constructor(
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
     savedState: SavedStateHandle,
-    private val detail: DetailRepository
+    private val detail: DetailRepository,
+    private val lists: com.lecteur.core.data.library.UserListsRepository
 ) : ViewModel() {
 
     val section: LibrarySection = LibrarySection.valueOf(checkNotNull(savedState.get<String>("section")))
@@ -68,6 +69,7 @@ class BrowseViewModel @Inject constructor(
                 BrowseKind.PERSON -> detail.person(id)?.let { "Avec ${it.name}" }
                 BrowseKind.COLLECTION -> detail.collection(id)?.name
                 BrowseKind.DECADE -> Formatters.decade(id.toInt())
+                BrowseKind.LIST -> lists.lists.first().firstOrNull { it.id == id }?.name
             }
         )
     }
