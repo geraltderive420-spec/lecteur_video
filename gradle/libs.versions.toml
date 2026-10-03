@@ -42,10 +42,6 @@ coil = "2.7.0"
 castFramework = "21.5.0"
 mediarouter = "1.7.0"
 
-# Google Cast
-google-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
-androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
-
 # Testing
 junit = "4.13.2"
 truth = "1.4.4"
@@ -120,6 +116,10 @@ androidx-media3-common = { group = "androidx.media3", name = "media3-common", ve
 androidx-media3-datasource = { group = "androidx.media3", name = "media3-datasource", version.ref = "media3" }
 nextlib-media3ext = { group = "io.github.anilbeesetti", name = "nextlib-media3ext", version.ref = "nextlib" }
 nextlib-mediainfo = { group = "io.github.anilbeesetti", name = "nextlib-mediainfo", version.ref = "nextlib" }
+
+# Google Cast
+google-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
+androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
