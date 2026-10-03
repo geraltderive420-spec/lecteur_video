@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.lecteur.core.database.entity.UserListEntity
 import com.lecteur.core.database.entity.UserListItemEntity
+import com.lecteur.core.database.relation.UserListRow
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -45,4 +46,28 @@ interface UserListDao {
 
     @Query("DELETE FROM user_list_items WHERE listId = :listId AND seriesId = :seriesId")
     suspend fun removeSeries(listId: Long, seriesId: Long)
+
+    @Query(
+        """
+        SELECT l.id AS id, l.name AS name, COUNT(i.id) AS itemCount
+        FROM user_lists l LEFT JOIN user_list_items i ON i.listId = l.id
+        GROUP BY l.id ORDER BY l.name COLLATE NOCASE
+        """
+    )
+    fun observeSummaries(): Flow<List<UserListRow>>
+
+    /** Ids of the lists a film is in. */
+    @Query("SELECT listId FROM user_list_items WHERE movieId = :movieId")
+    fun observeListsOfMovie(movieId: Long): Flow<List<Long>>
+
+    @Query("SELECT listId FROM user_list_items WHERE seriesId = :seriesId")
+    fun observeListsOfSeries(seriesId: Long): Flow<List<Long>>
+
+    /** Returns the number of rows changed: 0 when the id is unknown. */
+    @Query("UPDATE user_lists SET name = :name WHERE id = :id")
+    suspend fun renameList(id: Long, name: String): Int
+
+    /** Items go with the list (cascade); the films and series themselves are untouched. */
+    @Query("DELETE FROM user_lists WHERE id = :id")
+    suspend fun deleteList(id: Long)
 }

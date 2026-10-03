@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.lecteur.core.data.library.ItemActions
+import com.lecteur.core.data.library.ListPickerModel
+import com.lecteur.core.data.library.UserListsRepository
 import com.lecteur.core.data.library.LibraryRepository
 import com.lecteur.core.data.settings.LibraryViewRepository
 import com.lecteur.core.model.FilterOptions
@@ -51,8 +53,13 @@ sealed interface LibraryEvent {
 class LibraryViewModel @Inject constructor(
     private val library: LibraryRepository,
     private val views: LibraryViewRepository,
-    private val actions: ItemActions
+    private val actions: ItemActions,
+    lists: UserListsRepository
 ) : ViewModel() {
+
+    val listPicker = ListPickerModel(lists, viewModelScope)
+
+    fun addToList(item: LibraryItem) = listPicker.open(item.kind, item.id, item.title)
 
     private val binding = MutableStateFlow<LibraryBinding?>(null)
     private val _filters = MutableStateFlow(LibraryFilters())

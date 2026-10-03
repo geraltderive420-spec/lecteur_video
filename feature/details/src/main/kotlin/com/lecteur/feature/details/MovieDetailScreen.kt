@@ -47,6 +47,7 @@ import com.lecteur.core.designsystem.components.Badge
 import com.lecteur.core.designsystem.components.EmptyState
 import com.lecteur.core.designsystem.components.LoadingBox
 import com.lecteur.core.designsystem.components.PosterCard
+import com.lecteur.core.designsystem.components.ListPickerSheet
 import com.lecteur.core.designsystem.components.PosterImage
 import com.lecteur.core.designsystem.components.RatingLabel
 import com.lecteur.core.designsystem.components.SectionHeader
@@ -70,6 +71,8 @@ fun MovieDetailScreen(
     onOpenYear: (Int) -> Unit,
     onCorrect: (MediaKind, Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the cast picker for a file; null hides the entry (screens that cannot cast). */
+    onCast: ((Long) -> Unit)? = null,
     viewModel: MovieDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -84,6 +87,11 @@ fun MovieDetailScreen(
                 is DetailEvent.Message -> snackbar.showSnackbar(event.text)
             }
         }
+    }
+
+    val picker by viewModel.listPicker.state.collectAsStateWithLifecycle()
+    picker?.let {
+        ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
     }
 
     Scaffold(modifier = modifier, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
@@ -104,8 +112,10 @@ fun MovieDetailScreen(
                     onPlay = viewModel::play,
                     onToggleWatched = viewModel::toggleWatched,
                     onToggleFavorite = viewModel::toggleFavorite,
+                    onAddToList = viewModel::openListPicker,
                     onRefresh = viewModel::refresh,
                     onCorrect = { onCorrect(MediaKind.MOVIE, current.value.movie.id) },
+                    onCast = onCast,
                     onOpenLink = links::openUri,
                     onOpenPerson = onOpenPerson,
                     onOpenGenre = onOpenGenre,
@@ -126,8 +136,10 @@ private fun MovieContent(
     onPlay: (Long?) -> Unit,
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onAddToList: () -> Unit,
     onRefresh: () -> Unit,
     onCorrect: () -> Unit,
+    onCast: ((Long) -> Unit)?,
     onOpenLink: (String) -> Unit,
     onOpenPerson: (Long, String) -> Unit,
     onOpenGenre: (Long, String) -> Unit,
@@ -197,6 +209,8 @@ private fun MovieContent(
             }
             OverflowMenu(
                 listOfNotNull(
+                    if (onCast != null && version != null) MenuEntry("Diffuser sur un écran") { onCast(version.mediaFileId) } else null,
+                    MenuEntry("Ajouter à une liste", onClick = onAddToList),
                     MenuEntry("Corriger l'association", onClick = onCorrect),
                     MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = onRefresh),
                     ExternalLinks.imdb(movie.imdbId)?.let { url -> MenuEntry("Voir sur IMDb") { onOpenLink(url) } },

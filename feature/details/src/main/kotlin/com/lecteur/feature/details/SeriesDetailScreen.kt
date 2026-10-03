@@ -59,6 +59,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lecteur.core.designsystem.components.Badge
 import com.lecteur.core.designsystem.components.EmptyState
+import com.lecteur.core.designsystem.components.ListPickerSheet
 import com.lecteur.core.designsystem.components.LoadingBox
 import com.lecteur.core.designsystem.components.PosterImage
 import com.lecteur.core.designsystem.components.RatingLabel
@@ -83,11 +84,17 @@ fun SeriesDetailScreen(
     onOpenYear: (Int) -> Unit,
     onCorrect: (MediaKind, Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the cast picker for a file; null hides the entry. */
+    onCast: ((Long) -> Unit)? = null,
     viewModel: SeriesDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val picker by viewModel.listPicker.state.collectAsStateWithLifecycle()
+    picker?.let {
+        ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
+    }
     val links = LocalUriHandler.current
 
     LaunchedEffect(viewModel) {
@@ -116,6 +123,8 @@ fun SeriesDetailScreen(
                     viewModel = viewModel,
                     onBack = onBack,
                     onCorrect = { onCorrect(MediaKind.SERIES, current.value.series.id) },
+                    onCast = onCast,
+                    onAddToList = viewModel::openListPicker,
                     onOpenLink = links::openUri,
                     onOpenPerson = onOpenPerson,
                     onOpenGenre = onOpenGenre,
@@ -134,6 +143,8 @@ private fun SeriesContent(
     viewModel: SeriesDetailViewModel,
     onBack: () -> Unit,
     onCorrect: () -> Unit,
+    onCast: ((Long) -> Unit)?,
+    onAddToList: () -> Unit,
     onOpenLink: (String) -> Unit,
     onOpenPerson: (Long, String) -> Unit,
     onOpenGenre: (Long, String) -> Unit,
@@ -200,6 +211,7 @@ private fun SeriesContent(
                     MenuEntry("Langues préférées de la série") { showLanguages = true },
                     MenuEntry("Marquer toute la série comme vue") { viewModel.setSeriesWatched(true) },
                     MenuEntry("Marquer toute la série comme non vue") { viewModel.setSeriesWatched(false) },
+                    MenuEntry("Ajouter à une liste", onClick = onAddToList),
                     MenuEntry("Corriger l'association", onClick = onCorrect),
                     MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = viewModel::refresh),
                     ExternalLinks.imdb(series.imdbId)?.let { url -> MenuEntry("Voir sur IMDb") { onOpenLink(url) } },
@@ -248,6 +260,7 @@ private fun SeriesContent(
             episode = episode,
             onPlay = { fileId -> viewModel.playEpisode(episode, fileId) },
             onToggleWatched = { viewModel.setEpisodeWatched(episode, episode.watch != WatchStatus.WATCHED) },
+            onCast = onCast,
             onDismiss = { episodeMenu = null }
         )
     }
@@ -338,7 +351,7 @@ private fun EpisodeRow(episode: EpisodeItem, onPlay: () -> Unit, onMenu: () -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, onToggleWatched: () -> Unit, onDismiss: () -> Unit) {
+private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, onToggleWatched: () -> Unit, onCast: ((Long) -> Unit)?, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Text("${episode.label} · ${episode.title.orEmpty()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -349,6 +362,12 @@ private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, o
                 }
             } else if (playable.size == 1) {
                 TextButton(onClick = { onDismiss(); onPlay(null) }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Lire") }
+            }
+            val castable = playable.firstOrNull()
+            if (onCast != null && castable != null) {
+                TextButton(onClick = { onDismiss(); onCast(castable.mediaFileId) }, modifier = Modifier.padding(horizontal = 12.dp)) {
+                    Text(if (playable.size > 1) "Diffuser · ${castable.shortLabel}" else "Diffuser sur un écran")
+                }
             }
             if (episode.isInLibrary) {
                 TextButton(onClick = { onDismiss(); onToggleWatched() }, modifier = Modifier.padding(horizontal = 12.dp)) {

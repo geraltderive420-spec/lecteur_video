@@ -1,0 +1,41 @@
+name: Android build
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The repository only ships gradlew.bat, so Gradle is installed at the wrapper's version.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Unit tests
+        run: gradle test testDebugUnitTest --continue
+
+      - name: Build debug APKs (phone and TV)
+        env:
+          # Optional repository secret; without it the app builds but cannot fetch posters and synopses.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: gradle :app:assembleDebug :app-tv:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lecteur-media-phone-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lecteur-media-tv-debug
+          path: app-tv/build/outputs/apk/debug/app-tv-debug.apk
