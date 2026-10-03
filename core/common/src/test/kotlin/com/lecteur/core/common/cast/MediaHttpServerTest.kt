@@ -266,7 +266,13 @@ class MediaHttpServerTest {
     @Test fun `stop closes the port`() {
         server.stop()
         assertThat(server.isRunning).isFalse()
-        val refused = runCatching { Socket(InetAddress.getLoopbackAddress(), port).close() }.isFailure
+        // Closing a listening socket is not instantaneous on every kernel: allow a moment for the refusal.
+        val deadline = System.currentTimeMillis() + 3_000
+        var refused = false
+        while (!refused && System.currentTimeMillis() < deadline) {
+            refused = runCatching { Socket(InetAddress.getLoopbackAddress(), port).close() }.isFailure
+            if (!refused) Thread.sleep(50)
+        }
         assertThat(refused).isTrue()
     }
 }
