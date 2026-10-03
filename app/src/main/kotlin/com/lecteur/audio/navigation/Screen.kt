@@ -45,6 +45,7 @@ sealed class Screen(val route: String) {
         fun create(kind: MediaKind, id: Long) = "correct/${kind.name}/$id"
     }
     data object Welcome : Screen("welcome")
+    data object Remote : Screen("remote")
 
     companion object {
         /**

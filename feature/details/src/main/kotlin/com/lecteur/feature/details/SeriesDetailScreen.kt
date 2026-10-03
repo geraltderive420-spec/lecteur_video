@@ -83,6 +83,8 @@ fun SeriesDetailScreen(
     onOpenYear: (Int) -> Unit,
     onCorrect: (MediaKind, Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the cast picker for a file; null hides the entry. */
+    onCast: ((Long) -> Unit)? = null,
     viewModel: SeriesDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -248,6 +250,7 @@ private fun SeriesContent(
             episode = episode,
             onPlay = { fileId -> viewModel.playEpisode(episode, fileId) },
             onToggleWatched = { viewModel.setEpisodeWatched(episode, episode.watch != WatchStatus.WATCHED) },
+            onCast = onCast,
             onDismiss = { episodeMenu = null }
         )
     }
@@ -338,7 +341,7 @@ private fun EpisodeRow(episode: EpisodeItem, onPlay: () -> Unit, onMenu: () -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, onToggleWatched: () -> Unit, onDismiss: () -> Unit) {
+private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, onToggleWatched: () -> Unit, onCast: ((Long) -> Unit)?, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Text("${episode.label} · ${episode.title.orEmpty()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -349,6 +352,12 @@ private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, o
                 }
             } else if (playable.size == 1) {
                 TextButton(onClick = { onDismiss(); onPlay(null) }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Lire") }
+            }
+            val castable = playable.firstOrNull()
+            if (onCast != null && castable != null) {
+                TextButton(onClick = { onDismiss(); onCast(castable.mediaFileId) }, modifier = Modifier.padding(horizontal = 12.dp)) {
+                    Text(if (playable.size > 1) "Diffuser · ${castable.shortLabel}" else "Diffuser sur un écran")
+                }
             }
             if (episode.isInLibrary) {
                 TextButton(onClick = { onDismiss(); onToggleWatched() }, modifier = Modifier.padding(horizontal = 12.dp)) {

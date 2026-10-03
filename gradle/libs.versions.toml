@@ -38,6 +38,14 @@ media3 = "1.7.1"
 nextlib = "1.7.1-0.9.0"
 coil = "2.7.0"
 
+# Google Cast (Chromecast)
+castFramework = "21.5.0"
+mediarouter = "1.7.0"
+
+# Google Cast
+google-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
+androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
+
 # Testing
 junit = "4.13.2"
 truth = "1.4.4"

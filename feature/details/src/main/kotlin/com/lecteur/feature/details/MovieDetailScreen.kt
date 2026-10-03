@@ -70,6 +70,8 @@ fun MovieDetailScreen(
     onOpenYear: (Int) -> Unit,
     onCorrect: (MediaKind, Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Opens the cast picker for a file; null hides the entry (screens that cannot cast). */
+    onCast: ((Long) -> Unit)? = null,
     viewModel: MovieDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -106,6 +108,7 @@ fun MovieDetailScreen(
                     onToggleFavorite = viewModel::toggleFavorite,
                     onRefresh = viewModel::refresh,
                     onCorrect = { onCorrect(MediaKind.MOVIE, current.value.movie.id) },
+                    onCast = onCast,
                     onOpenLink = links::openUri,
                     onOpenPerson = onOpenPerson,
                     onOpenGenre = onOpenGenre,
@@ -128,6 +131,7 @@ private fun MovieContent(
     onToggleFavorite: () -> Unit,
     onRefresh: () -> Unit,
     onCorrect: () -> Unit,
+    onCast: ((Long) -> Unit)?,
     onOpenLink: (String) -> Unit,
     onOpenPerson: (Long, String) -> Unit,
     onOpenGenre: (Long, String) -> Unit,
@@ -197,6 +201,7 @@ private fun MovieContent(
             }
             OverflowMenu(
                 listOfNotNull(
+                    if (onCast != null && version != null) MenuEntry("Diffuser sur un écran") { onCast(version.mediaFileId) } else null,
                     MenuEntry("Corriger l'association", onClick = onCorrect),
                     MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = onRefresh),
                     ExternalLinks.imdb(movie.imdbId)?.let { url -> MenuEntry("Voir sur IMDb") { onOpenLink(url) } },

@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
@@ -38,6 +41,8 @@ import com.lecteur.audio.Startup
 import com.lecteur.core.model.LibrarySection
 import com.lecteur.core.model.MediaKind
 import com.lecteur.core.model.PlayPlan
+import com.lecteur.feature.cast.ui.CastSheet
+import com.lecteur.feature.cast.ui.RemoteScreen
 import com.lecteur.feature.details.MovieDetailScreen
 import com.lecteur.feature.details.SeriesDetailScreen
 import com.lecteur.feature.home.HomeScreen
@@ -137,6 +142,19 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
     val browse: (LibrarySection, BrowseKind, Long) -> Unit = { section, kind, id -> nav.navigate(Screen.Browse.create(section, kind, id)) }
     val back: () -> Unit = { nav.popBackStack() }
 
+    // The cast picker belongs to no single screen: any detail page opens it for a file, the remote takes over once a TV plays.
+    var castFileId by remember { mutableStateOf<Long?>(null) }
+    castFileId?.let { fileId ->
+        CastSheet(
+            mediaFileId = fileId,
+            onDismiss = { castFileId = null },
+            onOpenRemote = {
+                castFileId = null
+                nav.navigate(Screen.Remote.route) { launchSingleTop = true }
+            }
+        )
+    }
+
     NavHost(navController = nav, startDestination = Screen.Home.route, modifier = modifier) {
 
         composable(Screen.Home.route) {
@@ -183,7 +201,8 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 onOpenCollection = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.COLLECTION, id) },
                 onOpenMovie = openMovie,
                 onOpenYear = { decade -> browse(LibrarySection.MOVIES, BrowseKind.DECADE, decade.toLong()) },
-                onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) }
+                onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) },
+                onCast = { castFileId = it }
             )
         }
 
@@ -194,7 +213,8 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 onOpenPerson = { id, _ -> browse(LibrarySection.SERIES, BrowseKind.PERSON, id) },
                 onOpenGenre = { id, _ -> browse(LibrarySection.SERIES, BrowseKind.GENRE, id) },
                 onOpenYear = { decade -> browse(LibrarySection.SERIES, BrowseKind.DECADE, decade.toLong()) },
-                onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) }
+                onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) },
+                onCast = { castFileId = it }
             )
         }
 
@@ -233,6 +253,8 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
             val kind = runCatching { MediaKind.valueOf(entry.arguments?.getString("kind").orEmpty()) }.getOrDefault(MediaKind.MOVIE)
             CorrectionScreen(kind = kind, id = entry.arguments?.getLong("id") ?: 0L, onDone = back)
         }
+
+        composable(Screen.Remote.route) { RemoteScreen(onBack = back) }
 
         composable(Screen.Welcome.route) {
             WelcomeScreen(

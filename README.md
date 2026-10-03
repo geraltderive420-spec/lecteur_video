@@ -55,6 +55,20 @@ Application Android native moderne de lecture et d'organisation d'une bibliothè
     └── cast/             # Diffusion & mode compagnon
 ```
 
+## 📺 Cast et mode compagnon (phase 5)
+
+Deux mécanismes distincts, depuis « Diffuser sur un écran » (menu d'une fiche film, feuille d'actions d'un épisode) :
+
+- **Mode compagnon (principal)** : l'application installée sur l'Android TV (`app-tv`) reçoit l'ordre de lecture, lit le fichier avec le moteur complet (MKV, DTS, TrueHD, HDR...) et le téléphone devient télécommande (lecture, seek, pistes audio/sous-titres, vitesse, volume).
+  - Le téléphone sert le fichier en HTTP (serveur local, plages d'octets, jeton aléatoire de 128 bits dans l'URL, service au premier plan, arrêt automatique après 10 min d'inactivité). Les sous-titres externes sont servis de la même façon.
+  - La TV s'annonce par NSD (`_lecteurmedia._tcp.`) et affiche un **code à 6 chiffres** à saisir sur le téléphone : seule une personne présente dans la pièce peut la piloter.
+  - Protocole : JSON, un message par ligne sur TCP, versionné (`core/common/.../cast/protocol`), version négociée à la connexion.
+  - La position de lecture est enregistrée sur le téléphone au fil de la lecture et à la déconnexion : on reprend au même endroit en revenant sur le téléphone.
+  - L'application TV doit être **ouverte au premier plan** pour être visible et recevoir (elle disparaît de la liste du téléphone quand elle est fermée).
+- **Chromecast standard** : seulement si le fichier est compatible (MP4/WebM, H.264, AAC/AC3/EAC3/MP3/FLAC/Opus/Vorbis ; HEVC/VP9/4K/HDR sur Chromecast Ultra et Google TV). Sinon un message explique chaque raison du refus et renvoie vers le mode compagnon. Limites : pas de sélection de piste ni de sous-titres, pas de sauvegarde de la position côté téléphone.
+
+Code : logique pure testée dans `core:common` (`cast/http`, `cast/protocol`, `cast/compat`), partie Android dans `feature:cast`, récepteur et interface Compose for TV dans `app-tv`.
+
 ## ⚙️ Configuration
 
 1. Cloner le dépôt :

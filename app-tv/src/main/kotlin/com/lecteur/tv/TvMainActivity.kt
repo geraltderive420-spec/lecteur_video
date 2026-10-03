@@ -1,44 +1,45 @@
 package com.lecteur.tv
 
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
+import androidx.media3.common.util.UnstableApi
+import com.lecteur.core.designsystem.theme.LecteurTheme
+import com.lecteur.feature.cast.receiver.ReceiverHost
+import com.lecteur.tv.ui.TvRoot
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@UnstableApi
+@AndroidEntryPoint
 class TvMainActivity : ComponentActivity() {
-    @OptIn(ExperimentalTvMaterial3Api::class)
+
+    @Inject lateinit var receiver: ReceiverHost
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                TvHomeScreen()
+            LecteurTheme(darkTheme = true, dynamicColor = false) {
+                TvRoot()
             }
         }
     }
-}
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun TvHomeScreen() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F0F12)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "Lecteur Média TV",
-            style = MaterialTheme.typography.titleLarge,
-            color = Color.White
-        )
+    /** The TV only listens for a phone while the app is on screen: a TV that vanished from the list is better than one that answers into the void. */
+    override fun onStart() {
+        super.onStart()
+        receiver.start(deviceName())
     }
+
+    override fun onStop() {
+        if (!receiver.ui.value.playbackActive) receiver.stop()
+        super.onStop()
+    }
+
+    private fun deviceName(): String =
+        Settings.Global.getString(contentResolver, "device_name")?.takeIf { it.isNotBlank() }
+            ?: Build.MODEL?.takeIf { it.isNotBlank() }
+            ?: "Android TV"
 }
