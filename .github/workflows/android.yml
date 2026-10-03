@@ -25,6 +25,9 @@ jobs:
         run: gradle test testDebugUnitTest --continue
 
       - name: Build debug APKs (phone and TV)
+        env:
+          # Optional repository secret; without it the app builds but cannot fetch posters and synopses.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: gradle :app:assembleDebug :app-tv:assembleDebug
 
       - uses: actions/upload-artifact@v4
