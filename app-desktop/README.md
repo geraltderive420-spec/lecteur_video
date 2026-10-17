@@ -4,7 +4,7 @@ Version Windows de l'application, avec les fonctions de la version téléphone. 
 
 ## Installer
 
-- **Installateur** : `app-desktop/build/compose/binaries/main/exe/LecteurMedia-1.0.2.exe`. L'installation se fait pour l'utilisateur courant (dans `%LOCALAPPDATA%`), sans droits administrateur, et crée un raccourci dans le menu Démarrer.
+- **Installateur** : `app-desktop/build/compose/binaries/main/exe/LecteurMedia-1.0.3.exe`. L'installation se fait pour l'utilisateur courant (dans `%LOCALAPPDATA%`), sans droits administrateur, et crée un raccourci dans le menu Démarrer.
 - **Version portable** : le dossier `app-desktop/build/compose/binaries/main/app/LecteurMedia/` contient `LecteurMedia.exe`. On peut le copier n'importe où et le lancer directement.
 
 Tout est embarqué : le Java runtime et le moteur vidéo (libVLC). **Aucune installation de VLC ni de Java n'est nécessaire.**

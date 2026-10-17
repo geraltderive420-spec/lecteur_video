@@ -99,7 +99,7 @@ fun MovieDetailScreen(id: Long) {
                         progress = file?.progress ?: 0f,
                         positionMs = file?.watch?.positionMs ?: 0,
                         available = file?.file?.isAvailable == true,
-                        onPlay = { file?.let { a.playFile(it.file.id) } },
+                        onPlay = { file?.let { a.playFile(it.file.id, fromStart = if (it.progress > 0f) false else null) } },
                         onRestart = { file?.let { a.playFile(it.file.id, fromStart = true) } }
                     ) {
                         ActionIcon(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, if (fav) "Retirer des favoris" else "Ajouter aux favoris") { a.toggleFavorite(MediaKind.MOVIE, id) }

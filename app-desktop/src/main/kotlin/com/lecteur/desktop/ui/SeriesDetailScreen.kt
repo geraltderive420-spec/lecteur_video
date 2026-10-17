@@ -106,7 +106,7 @@ fun SeriesDetailScreen(id: Long) {
                                 SeriesPlayKind.REWATCH -> "Revoir depuis $label"
                             }
                         },
-                        onPlay = { target?.let { a.playEpisode(id, it.episode.episode.id) } },
+                        onPlay = { target?.let { a.playEpisode(id, it.episode.episode.id, fromStart = if (it.kind == SeriesPlayKind.RESUME) false else null) } },
                         onRestart = { target?.let { a.playEpisode(id, it.episode.episode.id, fromStart = true) } }
                     ) {
                         val allWatched = entry.owned.isNotEmpty() && entry.owned.all { it.watched }

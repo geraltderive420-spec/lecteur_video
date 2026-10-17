@@ -195,6 +195,30 @@ private fun run(root: File) {
     Thread.sleep(1_000)
     log("WATCH after close: ${store.watchState(movieFile.id)}")
 
+    // "Reprendre" from a detail page with no player open: resumes straight at the saved position
+    val saved = store.watchState(movieFile.id)?.positionMs ?: 0
+    services.playback.play(movieFile.id, fromStart = false)
+    waitUntil(10_000) { engine.state.value.isPlaying && engine.state.value.positionMs > 0 }
+    log("RESUME direct saved=$saved started=${engine.state.value.positionMs}")
+    engine.togglePause()
+    Thread.sleep(800)
+    val pausedOk = !engine.state.value.isPlaying
+    engine.togglePause()
+    Thread.sleep(800)
+    log("TOGGLE paused=$pausedOk resumed=${engine.state.value.isPlaying}")
+    services.playback.close()
+    Thread.sleep(800)
+    // Asked: the question waits with no player window, the answer opens the player at the right place
+    store.saveWatch(com.lecteur.core.model.WatchState(mediaFileId = movieFile.id, positionMs = 15_000, durationMs = 40_023))
+    services.playback.play(movieFile.id)
+    waitUntil(5_000) { services.playback.ui.value.resumeQuestion != null }
+    log("RESUME question=${services.playback.ui.value.resumeQuestion} active=${services.playback.ui.value.active}")
+    services.playback.answerResume(true)
+    waitUntil(10_000) { engine.state.value.isPlaying && engine.state.value.positionMs > 0 }
+    log("RESUME answered started=${engine.state.value.positionMs}")
+    services.playback.close()
+    Thread.sleep(800)
+
     // 4K HEVC
     snap.movies.values.firstOrNull { (it.files.first().file.width ?: 0) >= 3000 }?.let { m ->
         services.playback.play(m.files.first().file.id, fromStart = true)

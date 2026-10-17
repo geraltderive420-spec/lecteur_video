@@ -94,7 +94,7 @@ fun HomeScreen() {
                 onCard = { card -> a.open(card.item) },
                 onPlay = { card ->
                     when {
-                        card.mediaFileId != null -> a.playFile(card.mediaFileId)
+                        card.mediaFileId != null -> a.playFile(card.mediaFileId, fromStart = if (card.progress > 0f) false else null)
                         else -> a.play(card.item.kind, card.item.id)
                     }
                 }
@@ -143,7 +143,7 @@ private fun Hero(hero: HeroData) {
             }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { hero.card.mediaFileId?.let { a.playFile(it) } ?: a.play(hero.card.item.kind, hero.card.item.id) }) {
+                Button(onClick = { hero.card.mediaFileId?.let { a.playFile(it, fromStart = if (hero.card.progress > 0f) false else null) } ?: a.play(hero.card.item.kind, hero.card.item.id) }) {
                     Icon(Icons.Filled.PlayArrow, null)
                     Spacer(Modifier.width(6.dp))
                     Text(if (hero.card.progress > 0f) "Reprendre" else "Lire")

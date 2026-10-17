@@ -55,6 +55,18 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AppDialogs() {
     val a = app()
+    // The resume question of a video about to open: the player window does not exist yet, so it is asked here
+    val session by a.services.playback.ui.collectAsState()
+    val question = session.resumeQuestion
+    if (question != null && !session.active) {
+        AlertDialog(
+            onDismissRequest = { a.services.playback.answerResume(null) },
+            title = { Text(question.title) },
+            text = { Text("Vous aviez commencé cette vidéo.") },
+            confirmButton = { TextButton(onClick = { a.services.playback.answerResume(true) }) { Text("Reprendre à ${formatTime(question.positionMs)}") } },
+            dismissButton = { TextButton(onClick = { a.services.playback.answerResume(false) }) { Text("Depuis le début") } }
+        )
+    }
     when (val d = a.dialog) {
         null -> Unit
         is AppDialog.AddToList -> AddToListDialog(d)
@@ -225,6 +237,29 @@ private fun FixMatchDialog(d: AppDialog.FixMatch) {
     }
     LaunchedEffect(Unit) { search() }
 
+    fun apply(tmdbId: Long, label: String?) {
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val newId = withContext(Dispatchers.IO) { a.services.identifier.applyManual(d.kind, d.id, tmdbId) }
+                a.dialog = null
+                val name = label ?: (if (d.kind == MediaKind.MOVIE) a.services.store.movie(newId)?.title else a.services.store.series(newId)?.title)
+                a.say("« ${name ?: tmdbId} » associé")
+                if (newId != d.id) { a.back(); a.open(d.kind, newId) }
+            } catch (e: Exception) {
+                error = when (e) {
+                    is MetadataException.NotFound -> "Aucun${if (d.kind == MediaKind.MOVIE) " film" else "e série"} TMDB avec l'identifiant $tmdbId."
+                    else -> e.message
+                }
+                busy = false
+            }
+        }
+    }
+
+    var link by remember { mutableStateOf("") }
+    val parsedLink = remember(link) { TmdbLink.parse(link) }
+
     AlertDialog(
         onDismissRequest = { a.dialog = null },
         title = { Text("Corriger l'identification") },
@@ -237,31 +272,38 @@ private fun FixMatchDialog(d: AppDialog.FixMatch) {
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = ::search) { Text("Chercher") }
                 }
-                if (d.kind == MediaKind.MOVIE) {
-                    Text("Recherche parmi les films", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Text("Recherche parmi les séries", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        link, { link = it.trim() }, singleLine = true, modifier = Modifier.weight(1f),
+                        label = { Text("Ou collez le lien TMDB (ou son identifiant)") },
+                        placeholder = { Text(if (d.kind == MediaKind.MOVIE) "https://www.themoviedb.org/movie/27205" else "https://www.themoviedb.org/tv/1396") },
+                        isError = link.isNotEmpty() && (parsedLink == null || (parsedLink.kind != null && parsedLink.kind != d.kind))
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        enabled = parsedLink != null && (parsedLink.kind == null || parsedLink.kind == d.kind) && !busy,
+                        onClick = { parsedLink?.let { apply(it.id, null) } }
+                    ) { Text("Associer") }
                 }
+                val linkProblem = when {
+                    link.isEmpty() -> null
+                    parsedLink == null -> "Lien non reconnu : copiez l'adresse de la page du film ou de la série sur themoviedb.org."
+                    parsedLink.kind != null && parsedLink.kind != d.kind ->
+                        if (d.kind == MediaKind.MOVIE) "Ce lien est une série, mais ce titre est rangé en film." else "Ce lien est un film, mais ce titre est rangé en série."
+                    else -> null
+                }
+                Text(
+                    linkProblem ?: if (d.kind == MediaKind.MOVIE) "Recherche parmi les films" else "Recherche parmi les séries",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (linkProblem != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.height(8.dp))
                 if (busy) CircularProgressIndicator(Modifier.size(28.dp))
                 error?.let { Text(it, color = MaterialTheme.colorScheme.tertiary) }
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(hits, key = { it.tmdbId }) { hit ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
-                                busy = true
-                                scope.launch {
-                                    try {
-                                        val newId = withContext(Dispatchers.IO) { a.services.identifier.applyManual(d.kind, d.id, hit.tmdbId) }
-                                        a.dialog = null
-                                        a.say("« ${hit.title} » associé")
-                                        if (newId != d.id) { a.back(); a.open(d.kind, newId) }
-                                    } catch (e: Exception) {
-                                        error = e.message
-                                        busy = false
-                                    }
-                                }
-                            }.padding(8.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { apply(hit.tmdbId, hit.title) }.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(Modifier.width(54.dp).height(80.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
@@ -281,4 +323,18 @@ private fun FixMatchDialog(d: AppDialog.FixMatch) {
         confirmButton = {},
         dismissButton = { TextButton(onClick = { a.dialog = null }) { Text("Fermer") } }
     )
+}
+
+/** A TMDB page address ("https://www.themoviedb.org/tv/1396-breaking-bad") or a bare id. */
+data class TmdbLink(val kind: MediaKind?, val id: Long) {
+    companion object {
+        private val URL = Regex("(?i)themoviedb\\.org/(?:[a-z]{2}(?:-[a-z]{2})?/)?(movie|tv)/(\\d+)")
+
+        fun parse(text: String): TmdbLink? {
+            val t = text.trim()
+            if (t.isEmpty()) return null
+            URL.find(t)?.let { m -> return TmdbLink(if (m.groupValues[1].equals("movie", true)) MediaKind.MOVIE else MediaKind.SERIES, m.groupValues[2].toLong()) }
+            return t.toLongOrNull()?.takeIf { it > 0 }?.let { TmdbLink(null, it) }
+        }
+    }
 }

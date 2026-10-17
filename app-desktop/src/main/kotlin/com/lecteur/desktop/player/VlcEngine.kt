@@ -162,7 +162,17 @@ class VlcEngine {
 
     fun play() = player?.submit { player.controls().setPause(false) }
     fun pause() = player?.submit { player.controls().setPause(true) }
-    fun togglePause() = if (_state.value.isPlaying) pause() else play()
+    /** Asks libVLC itself (the flag kept here can lag behind a network stall); a finished video starts again. */
+    fun togglePause() {
+        val p = player ?: return
+        p.submit {
+            when {
+                _state.value.status == EngineStatus.ENDED -> { p.controls().play(); p.controls().setTime(0) }
+                p.status().isPlaying -> p.controls().setPause(true)
+                else -> p.controls().setPause(false)
+            }
+        }
+    }
 
     fun stop() {
         player?.submit { player.controls().stop() }
