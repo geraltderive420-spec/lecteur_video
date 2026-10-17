@@ -61,6 +61,22 @@ private fun waitUntil(timeoutMs: Long, step: Long = 200, condition: () -> Boolea
 
 fun main(args: Array<String>) {
     val root = File(args.firstOrNull() ?: error("library folder expected"))
+    if (System.getenv("SELFTEST_SCAN_ONLY") == "1") {
+        // Rescans an existing library (LECTEUR_DATA_DIR) and lists what is where: checks the scan on a real copy
+        out = File(root, "out").apply { mkdirs() }
+        val services = AppServices()
+        services.scanner.start()
+        waitUntil(5_000) { services.scanner.status.value.running }
+        waitUntil(900_000, 500) { !services.scanner.status.value.running }
+        services.store.refreshNow()
+        val snap = services.store.snapshot.value
+        log("SCAN ${services.scanner.status.value.lastMessage}")
+        snap.movies.values.sortedBy { it.movie.title }.forEach { log("FILM ${it.movie.title} (${it.movie.year}) ${it.movie.matchState} files=${it.files.size}") }
+        snap.series.values.sortedBy { it.series.title }.forEach { s -> log("SERIE ${s.series.title} ${s.series.matchState} ${s.owned.map { "S${it.episode.seasonNumber}E${it.episode.episodeNumber}" }}") }
+        val dupes = services.db.read { query("SELECT path, COUNT(*) n FROM media_files GROUP BY lower(path) HAVING n > 1") { it.str("path") } }
+        log("DUPLICATE ROWS $dupes")
+        exitProcess(0)
+    }
     out = File(root, "out").apply { deleteRecursively(); mkdirs() }
     File(root, "data").deleteRecursively()
     try {
@@ -231,6 +247,21 @@ private fun run(root: File) {
     log("PHONE stream ${shared.url}")
     client.send(Open(streamUrl = shared.url, title = "Depuis le téléphone", mediaFileId = 4242, startPositionMs = 5_000))
     val remotePlaying = waitUntil(15_000) { events.any { it is RemoteProgress } }
+    // Flicker hunt: every change of the playing state and every overlay show/reshape over 15 s of streaming
+    run {
+        val shows0 = app.player.overlayShows
+        val reshapes0 = app.player.overlayReshapes
+        val transitions = ArrayList<String>()
+        var last = ""
+        val end = System.currentTimeMillis() + 15_000
+        while (System.currentTimeMillis() < end) {
+            val st = engine.state.value
+            val key = "${st.status}/${st.isPlaying}"
+            if (key != last) { transitions += "${st.positionMs}:$key"; last = key }
+            Thread.sleep(50)
+        }
+        log("STREAM transitions=$transitions overlayShows=${app.player.overlayShows - shows0} overlayReshapes=${app.player.overlayReshapes - reshapes0}")
+    }
     log("REMOTE playing=$remotePlaying owner=${services.playback.ui.value.owner} controller=${services.playback.ui.value.remoteController} pos=${engine.state.value.positionMs}")
     val state = events.filterIsInstance<RemoteState>().lastOrNull()
     log("REMOTE last state status=${state?.status} title=${state?.title} audio=${state?.audio?.size} subs=${state?.subtitles?.size} dur=${state?.durationMs}")

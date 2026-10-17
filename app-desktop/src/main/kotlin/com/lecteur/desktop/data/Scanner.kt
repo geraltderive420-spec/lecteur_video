@@ -134,6 +134,8 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
             val categories = siblings.map { it.category }
             walk.videos.filter { CategoryFit.choose(categories, parse(it), it.relativePath) == folder.category }
         }
+        if (siblings.size > 1) takeOver(siblings, folder, mine)
+        relinkMisfiled(folder, mine)
 
         val known = store.filesOfFolder(folder.id)
         val plan = ScanPlanner.plan(known.map(::toKnown), mine, force)
@@ -174,7 +176,7 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
                 val existing = result.known ?: result.moved
                 if (existing != null) {
                     store.updateFile(existing.id, f.uri, f.name, f.size, f.lastModified, result.fingerprint, result.info)
-                    if (!existing.isLinked || force) link(existing.id, folder, result, nfoCache)
+                    if (!existing.isLinked) link(existing.id, folder, result, nfoCache)
                 } else {
                     val id = store.insertFile(
                         MediaFile(
@@ -191,7 +193,7 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
         }
 
         if (walk.complete) store.deleteFiles(moves.unclaimed().map { it.id })
-        if (siblings.size > 1) store.removeOrphans()
+        store.removeOrphans()
         store.setLastScanned(folder.id, System.currentTimeMillis())
         store.changed()
         added
@@ -211,7 +213,57 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
         isAvailable = f.isAvailable, isLinked = f.movieId != null || f.episodeId != null
     )
 
-    private fun parse(found: FoundFile): ParsedMediaInfo = FilenameParser.parse(found.name, found.parentName, found.grandparentName)
+    private val parsedCache = java.util.concurrent.ConcurrentHashMap<String, ParsedMediaInfo>()
+
+    private fun parse(found: FoundFile): ParsedMediaInfo = parsedCache.getOrPut(found.uri + "|" + found.relativePath) { NameRules.parse(found) }
+
+    /**
+     * Files of this entry that a sibling entry of the same folder holds (it was scanned first, or the naming rules
+     * improved): they change hands with their row and progress. When both entries hold a row for the same file (scans
+     * before this rule existed), the rows are merged into this entry's one.
+     */
+    private fun takeOver(siblings: List<LibraryFolder>, folder: LibraryFolder, mine: List<FoundFile>) {
+        val others = siblings.filter { it.id != folder.id }.flatMap { store.filesOfFolder(it.id) }.groupBy { it.uri.lowercase() }
+        if (others.isEmpty()) return
+        val own = store.filesOfFolder(folder.id).associateBy { it.uri.lowercase() }
+        for (file in mine) {
+            val key = file.uri.lowercase()
+            val theirs = others[key] ?: continue
+            val keep = own[key]
+            if (keep != null) {
+                theirs.forEach { store.mergeFile(it.id, keep.id) }
+            } else {
+                val first = theirs.first()
+                store.reassignFolder(first.id, folder.id)
+                // Unlinked, so this scan files it again under this entry's category
+                store.setLinks(first.id, null, null)
+                theirs.drop(1).forEach { store.mergeFile(it.id, first.id) }
+            }
+        }
+    }
+
+    /** A file filed as a film that the rules now see as an episode (or the reverse) is unlinked, so this scan files it again. */
+    private fun relinkMisfiled(folder: LibraryFolder, mine: List<FoundFile>) {
+        val byPath = mine.associateBy { it.uri.lowercase() }
+        val episodic = folder.category == MediaCategory.SERIES || folder.category == MediaCategory.ANIME || folder.category == MediaCategory.GENERIC
+        for (row in store.filesOfFolder(folder.id)) {
+            if (row.movieId == null && row.episodeId == null) continue
+            val found = byPath[row.uri.lowercase()] ?: continue
+            val parsed = parse(found)
+            val wantEpisode = episodic && parsed.isSeries
+            if ((row.episodeId != null) != wantEpisode) {
+                store.setLinks(row.id, null, null)
+                continue
+            }
+            // A film named wrongly by older rules ("Wall" for Wall-E) and not confirmed by anyone: filed again under its real name
+            val movie = row.movieId?.let(store::movie) ?: continue
+            val title = parsed.cleanTitle
+            if (!movie.matchLocked && movie.matchState != com.lecteur.core.model.MatchState.IDENTIFIED && title.isNotBlank() &&
+                LibraryStore.sortKey(title) != LibraryStore.sortKey(movie.originalTitle ?: movie.title) &&
+                LibraryStore.sortKey(title) != LibraryStore.sortKey(movie.title) && parsed.year != null && parsed.year != movie.year
+            ) store.setLinks(row.id, null, null)
+        }
+    }
 
     private fun walk(root: File): Walk {
         if (!root.isDirectory) return Walk(false, false, emptyList(), emptyMap())
@@ -366,7 +418,9 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
         val title = (nfo?.title ?: parsed.cleanTitle).ifBlank { "Série sans titre" }
         val id = store.insertSeries(
             Series(
-                title = title, originalTitle = nfo?.originalTitle, firstAirDate = (nfo?.year ?: parsed.year)?.toString(),
+                title = title,
+                originalTitle = nfo?.originalTitle ?: NameRules.fileTitle(video.name, video.parentFile?.name)?.takeIf { !it.equals(title, ignoreCase = true) },
+                firstAirDate = (nfo?.year ?: parsed.year)?.toString(),
                 overview = nfo?.overview, rating = nfo?.rating, certification = nfo?.certification, tmdbId = nfo?.tmdbId,
                 imdbId = nfo?.imdbId, posterPath = artwork(showDir, null, POSTERS), backdropPath = artwork(showDir, null, BACKDROPS)
             )

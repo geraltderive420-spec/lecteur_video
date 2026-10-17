@@ -17,13 +17,24 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.net.InetAddress
 
-/** Where the app keeps its files: %LOCALAPPDATA%\LecteurMedia (database, image cache, settings). */
+/**
+ * Where the app keeps its files: %LOCALAPPDATA%\LecteurMedia\data (database, image cache, settings). Not the install
+ * folder itself (%LOCALAPPDATA%\LecteurMedia for a per-user install): updates and uninstalls must not touch the library.
+ */
 object AppDirs {
+    private val DATA_FILES = listOf("library.db", "library.db-wal", "library.db-shm", "settings.json", "images")
+
     val root: File = run {
         // LECTEUR_DATA_DIR: a separate library (tests, a second profile)
         System.getenv("LECTEUR_DATA_DIR")?.takeIf { it.isNotBlank() }?.let { return@run File(it).apply { mkdirs() } }
         val base = System.getenv("LOCALAPPDATA")?.let(::File) ?: File(System.getProperty("user.home"), ".lecteurmedia")
-        File(base, "LecteurMedia").apply { mkdirs() }
+        val legacy = File(base, "LecteurMedia")
+        val data = File(legacy, "data").apply { mkdirs() }
+        // First versions wrote next to the program: move the library over once
+        if (!File(data, "library.db").exists()) {
+            DATA_FILES.map { File(legacy, it) }.filter { it.exists() }.forEach { runCatching { it.renameTo(File(data, it.name)) } }
+        }
+        data
     }
     val database: File get() = File(root, "library.db")
     val images: File get() = File(root, "images").apply { mkdirs() }

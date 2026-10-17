@@ -10,6 +10,8 @@ import com.lecteur.desktop.ui.LecteurApp
 import javax.swing.UIManager
 
 fun main() {
+    // No background erase of the video canvas by Windows (flicker over libVLC's picture)
+    System.setProperty("sun.awt.noerasebackground", "true")
     // Native look for the file and folder pickers
     runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
     System.setProperty("skiko.renderApi", System.getProperty("skiko.renderApi") ?: "DIRECT3D")

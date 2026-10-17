@@ -54,6 +54,10 @@ class PlayerWindowState {
     var overlayBounds by mutableStateOf<Rectangle?>(null)
     var maximized by mutableStateOf(false)
 
+    /** Diagnostics: how often the overlay was shown, and how often its window was really moved or resized. */
+    var overlayShows = 0
+    var overlayReshapes = 0
+
     /** The video window (borderless: its title bar and resize edges are drawn by the controls overlay). */
     var frame: java.awt.Frame? = null
         internal set
@@ -233,6 +237,7 @@ fun PlayerWindow(app: AppController, icon: Painter?) {
             session.resumeQuestion != null || session.upNextSeconds != null
         LaunchedEffect(visible) {
             engine.canvas.cursor = if (visible) Cursor.getDefaultCursor() else BLANK_CURSOR
+            if (visible) ui.overlayShows++
         }
 
         val bounds = ui.overlayBounds
@@ -249,7 +254,7 @@ fun PlayerWindow(app: AppController, icon: Painter?) {
                     }
                 },
                 dispose = ComposeDialog::dispose,
-                update = { it.bounds = bounds }
+                update = { dialog -> if (dialog.bounds != bounds) { ui.overlayReshapes++; dialog.bounds = bounds } }
             ) {
                 CompositionLocalProvider(LocalApp provides app) {
                     LecteurTheme(settings.themeMode) {

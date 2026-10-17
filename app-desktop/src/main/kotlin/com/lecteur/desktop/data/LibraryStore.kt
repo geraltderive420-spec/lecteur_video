@@ -191,6 +191,14 @@ class LibraryStore(val db: Db) {
         }
     }
 
+    fun reassignFolder(fileId: Long, folderId: Long) = db.write { exec("UPDATE media_files SET folder_id = ? WHERE id = ?", folderId, fileId) }
+
+    /** Folds a duplicate row into [into]: its watch state moves over unless [into] already has one, then it goes. */
+    fun mergeFile(from: Long, into: Long) = db.write {
+        exec("UPDATE OR IGNORE watch_state SET media_file_id = ? WHERE media_file_id = ?", into, from)
+        exec("DELETE FROM media_files WHERE id = ?", from)
+    }
+
     fun setLinks(fileId: Long, movieId: Long?, episodeId: Long?) =
         db.write { exec("UPDATE media_files SET movie_id = ?, episode_id = ? WHERE id = ?", movieId, episodeId, fileId) }
 

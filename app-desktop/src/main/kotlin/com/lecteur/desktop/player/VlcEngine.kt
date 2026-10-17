@@ -93,7 +93,17 @@ sealed interface EngineEvent {
  * over the companion protocol; VLC's own ES ids stay inside this class.
  */
 class VlcEngine {
-    val canvas: Canvas = Canvas().apply { background = Color.BLACK }
+    /**
+     * Never painted by AWT: an erase or repaint (a menu or the controls closing above the video) would otherwise fill it
+     * with black over libVLC's picture until the next frame, a visible flash.
+     */
+    val canvas: Canvas = object : Canvas() {
+        override fun paint(g: java.awt.Graphics?) = Unit
+        override fun update(g: java.awt.Graphics?) = Unit
+    }.apply {
+        background = Color.BLACK
+        ignoreRepaint = true
+    }
     private val player: EmbeddedMediaPlayer? = Vlc.factory()?.mediaPlayers()?.newEmbeddedMediaPlayer()
 
     val isAvailable: Boolean get() = player != null
@@ -129,6 +139,11 @@ class VlcEngine {
             if (r.startPositionMs > 0) add(":start-time=${r.startPositionMs / 1000.0}")
             if (!r.hardwareDecoding) add(":avcodec-hw=none")
             if (r.nightMode) add(":audio-filter=compressor")
+            // Streams from the phone come over Wi-Fi: a bigger buffer rides out its hiccups, and a dropped connection resumes
+            if (r.location.startsWith("http")) {
+                add(":network-caching=4000")
+                add(":http-reconnect")
+            }
             r.languages.audio.takeIf { it.isNotEmpty() }?.let { add(":audio-language=${it.joinToString(",")}") }
         }.toTypedArray()
 

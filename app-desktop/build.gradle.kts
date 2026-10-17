@@ -15,7 +15,7 @@ val tmdbApiKey: String = run {
     (fromFile ?: System.getenv("TMDB_API_KEY") ?: "").trim()
 }
 
-val appVersion = "1.0.0"
+val appVersion = "1.0.1"
 
 val generateBuildConfig by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildconfig")
@@ -102,7 +102,7 @@ val prepareVlc by tasks.registering(Sync::class) {
 compose.desktop {
     application {
         mainClass = "com.lecteur.desktop.MainKt"
-        jvmArgs += listOf("-Dfile.encoding=UTF-8", "-Xmx1g", "-Dsun.java2d.d3d=true")
+        jvmArgs += listOf("-Dfile.encoding=UTF-8", "-Xmx1g", "-Dsun.java2d.d3d=true", "-Dsun.awt.noerasebackground=true")
 
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
@@ -142,7 +142,8 @@ tasks.register<JavaExec>("selfTest") {
     mainClass.set("com.lecteur.desktop.SelfTestKt")
     val dir = (findProperty("selfTestDir") as String?) ?: layout.buildDirectory.dir("selftest").get().asFile.absolutePath
     args(dir)
-    environment("LECTEUR_DATA_DIR", "$dir/data")
+    environment("LECTEUR_DATA_DIR", (findProperty("selfTestData") as String?) ?: "$dir/data")
+    (findProperty("selfTestScanOnly") as String?)?.let { environment("SELFTEST_SCAN_ONLY", it) }
     systemProperty("compose.application.resources.dir", layout.buildDirectory.dir("vlc-resources/windows").get().asFile.absolutePath)
-    jvmArgs("-Dfile.encoding=UTF-8")
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dsun.awt.noerasebackground=true")
 }

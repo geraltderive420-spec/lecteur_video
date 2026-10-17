@@ -1,6 +1,7 @@
 package com.lecteur.desktop.data
 
 import com.lecteur.core.common.match.MatchCandidate
+import com.lecteur.core.common.match.MatchDecision
 import com.lecteur.core.common.match.MatchQuery
 import com.lecteur.core.common.match.MatchScorer
 import com.lecteur.core.common.match.TitleSimilarity
@@ -140,7 +141,7 @@ class Identifier(private val store: LibraryStore, private val tmdb: TmdbProvider
             val hits = searchWithFallbacks(MediaKind.SERIES, title, originalTitle, year)
             if (hits.isEmpty()) return markTried("series", id)
             val candidates = hits.map { MatchCandidate(it.tmdbId, it.title, it.originalTitle, it.year, popularity = it.popularity) }
-            val decision = MatchScorer.decide(MatchQuery(title, year), candidates)
+            val decision = decideSeries(listOfNotNull(title, originalTitle), year, candidates)
             val best = decision.best ?: return markTried("series", id)
             applySeries(id, provider.seriesDetails(best.candidate.id), fill = true, decision.state, lock = false)
             return decision.state
@@ -149,6 +150,27 @@ class Identifier(private val store: LibraryStore, private val tmdb: TmdbProvider
         } catch (_: MetadataException.Http) {
             return markTried("series", id)
         }
+    }
+
+    /**
+     * The best decision over every title the show is known by (the folder's name and the file's own title), then a last
+     * chance: a candidate whose title is the first words of one of them ("Kaiji" for "Kaiji Ultimate Survivor") is
+     * proposed for checking rather than dropped.
+     */
+    private fun decideSeries(titles: List<String>, year: Int?, candidates: List<MatchCandidate>): MatchDecision {
+        val decisions = titles.distinct().map { MatchScorer.decide(MatchQuery(it, year), candidates) }
+        decisions.filter { it.best != null }.maxByOrNull { it.best!!.confidence }?.let { return it }
+        for (t in titles) {
+            val key = TitleSimilarity.comparisonKey(t)
+            val prefix = candidates.filter { c ->
+                listOfNotNull(c.title, c.originalTitle).any { name ->
+                    val k = TitleSimilarity.comparisonKey(name)
+                    k.length >= 4 && (key == k || key.startsWith("$k "))
+                }
+            }.maxByOrNull { it.popularity } ?: continue
+            return MatchDecision(MatchScorer.score(MatchQuery(t, year), prefix), MatchState.TO_VERIFY)
+        }
+        return decisions.first()
     }
 
     private suspend fun searchWithFallbacks(kind: MediaKind, title: String, originalTitle: String?, year: Int?): List<MetadataSearchHit> {
