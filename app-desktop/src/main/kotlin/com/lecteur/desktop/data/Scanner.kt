@@ -242,15 +242,25 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
         }
     }
 
+    /**
+     * Episode or film. In a series folder, anything that looks like an episode is one; in a films or documentaries
+     * folder only an explicit season and episode (S02E08, 2x08, "Saison 1/... - 01 - ...") makes an episode, so a
+     * download folder declared as films still files its series under Séries.
+     */
+    private fun isEpisode(category: MediaCategory, parsed: ParsedMediaInfo): Boolean = when (category) {
+        MediaCategory.PERSONAL -> false
+        MediaCategory.SERIES, MediaCategory.ANIME, MediaCategory.GENERIC -> parsed.isSeries
+        MediaCategory.MOVIES, MediaCategory.DOCUMENTARIES -> parsed.isSeries && parsed.seasonNumber != null && parsed.episodeNumbers.isNotEmpty()
+    }
+
     /** A file filed as a film that the rules now see as an episode (or the reverse) is unlinked, so this scan files it again. */
     private fun relinkMisfiled(folder: LibraryFolder, mine: List<FoundFile>) {
         val byPath = mine.associateBy { it.uri.lowercase() }
-        val episodic = folder.category == MediaCategory.SERIES || folder.category == MediaCategory.ANIME || folder.category == MediaCategory.GENERIC
         for (row in store.filesOfFolder(folder.id)) {
             if (row.movieId == null && row.episodeId == null) continue
             val found = byPath[row.uri.lowercase()] ?: continue
             val parsed = parse(found)
-            val wantEpisode = episodic && parsed.isSeries
+            val wantEpisode = folder.category != MediaCategory.PERSONAL && isEpisode(folder.category, parsed)
             if ((row.episodeId != null) != wantEpisode) {
                 store.setLinks(row.id, null, null)
                 continue
@@ -344,12 +354,10 @@ class Scanner(private val store: LibraryStore, private val identifier: Identifie
     private fun link(fileId: Long, folder: LibraryFolder, result: Inspected, nfoCache: HashMap<String, NfoData?>) {
         val parsed = result.parsed
         val videoFile = File(result.found.uri)
-        when (folder.category) {
-            MediaCategory.PERSONAL -> store.setLinks(fileId, movieFor(result, null, personal = true, videoFile), null)
-            MediaCategory.MOVIES, MediaCategory.DOCUMENTARIES -> store.setLinks(fileId, movieFor(result, nfoFor(videoFile, false, nfoCache), false, videoFile), null)
-            MediaCategory.SERIES, MediaCategory.ANIME, MediaCategory.GENERIC ->
-                if (parsed.isSeries) store.setLinks(fileId, null, episodeFor(parsed, nfoFor(videoFile, true, nfoCache), videoFile))
-                else store.setLinks(fileId, movieFor(result, nfoFor(videoFile, false, nfoCache), false, videoFile), null)
+        when {
+            folder.category == MediaCategory.PERSONAL -> store.setLinks(fileId, movieFor(result, null, personal = true, videoFile), null)
+            isEpisode(folder.category, parsed) -> store.setLinks(fileId, null, episodeFor(parsed, nfoFor(videoFile, true, nfoCache), videoFile))
+            else -> store.setLinks(fileId, movieFor(result, nfoFor(videoFile, false, nfoCache), false, videoFile), null)
         }
     }
 

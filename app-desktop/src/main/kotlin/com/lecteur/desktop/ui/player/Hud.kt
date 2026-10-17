@@ -130,7 +130,7 @@ fun Hud(ui: PlayerWindowState) {
         Modifier.fillMaxSize()
             // Almost transparent, not fully: a window region with zero alpha would let the clicks through
             .background(Color.Black.copy(alpha = 0.02f))
-            .onPointerEvent(PointerEventType.Move) { ui.poke() }
+            .onPointerEvent(PointerEventType.Move) { ui.pointerMoved() }
             .onPointerEvent(PointerEventType.Scroll) { e ->
                 ui.poke()
                 val dy = e.changes.firstOrNull()?.scrollDelta?.y ?: 0f

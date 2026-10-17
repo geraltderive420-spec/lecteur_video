@@ -71,6 +71,20 @@ class PlayerWindowState {
         lastActivity = System.currentTimeMillis()
     }
 
+    private var lastPointer: java.awt.Point? = null
+
+    /**
+     * A real move of the mouse. Windows also sends a "move" to whatever window appears or disappears under a still
+     * cursor (the controls hiding put the video under it): taken at face value, the controls would show again at once
+     * and blink every few seconds. Only a change of the pointer's screen position counts.
+     */
+    fun pointerMoved() {
+        val now = runCatching { java.awt.MouseInfo.getPointerInfo()?.location }.getOrNull() ?: return
+        val last = lastPointer
+        lastPointer = now
+        if (last == null || kotlin.math.abs(now.x - last.x) > 2 || kotlin.math.abs(now.y - last.y) > 2) poke()
+    }
+
     fun minimize() {
         frame?.extendedState = java.awt.Frame.ICONIFIED
     }
@@ -174,8 +188,8 @@ fun PlayerWindow(app: AppController, icon: Painter?) {
             val canvas = engine.canvas
             var pendingClick: Thread? = null
             val mouse = object : MouseAdapter() {
-                override fun mouseMoved(e: MouseEvent) = ui.poke()
-                override fun mouseDragged(e: MouseEvent) = ui.poke()
+                override fun mouseMoved(e: MouseEvent) = ui.pointerMoved()
+                override fun mouseDragged(e: MouseEvent) = ui.pointerMoved()
                 override fun mouseClicked(e: MouseEvent) {
                     ui.poke()
                     if (e.button != MouseEvent.BUTTON1) return
