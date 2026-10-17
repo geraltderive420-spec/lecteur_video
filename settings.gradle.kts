@@ -43,3 +43,4 @@ include(":feature:cast")
 // App targets
 include(":app")
 include(":app-tv")
+include(":app-desktop")

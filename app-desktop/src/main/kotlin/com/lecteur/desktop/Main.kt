@@ -1,0 +1,39 @@
+package com.lecteur.desktop
+
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.res.useResource
+import androidx.compose.ui.window.application
+import com.lecteur.desktop.ui.AppController
+import com.lecteur.desktop.ui.LecteurApp
+import javax.swing.UIManager
+
+fun main() {
+    // Native look for the file and folder pickers
+    runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+    System.setProperty("skiko.renderApi", System.getProperty("skiko.renderApi") ?: "DIRECT3D")
+
+    val services = AppServices()
+    if (services.settings.value.receiverEnabled) services.receiver.start()
+    if (services.settings.value.scanOnStart) services.scanner.start()
+    // Periodic rescan while the app is open (new episodes downloaded overnight...)
+    Thread({
+        var last = System.currentTimeMillis()
+        while (true) {
+            Thread.sleep(60_000)
+            val hours = services.settings.value.periodicScanHours
+            if (hours > 0 && System.currentTimeMillis() - last >= hours * 3_600_000L) {
+                last = System.currentTimeMillis()
+                services.scanner.start()
+            }
+        }
+    }, "periodic-scan").apply { isDaemon = true }.start()
+    Runtime.getRuntime().addShutdownHook(Thread { services.shutdown() })
+
+    application(exitProcessOnExit = true) {
+        val app = remember { AppController(services) }
+        val icon = remember { runCatching { BitmapPainter(useResource("icon.png", ::loadImageBitmap)) }.getOrNull() }
+        LecteurApp(app, icon)
+    }
+}

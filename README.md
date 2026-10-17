@@ -37,6 +37,7 @@ Application Android native moderne de lecture et d'organisation d'une bibliothè
 ```text
 ├── app/                  # Application mobile (téléphone & tablette)
 ├── app-tv/               # Application Android TV / Google TV
+├── app-desktop/          # Application Windows (Compose Desktop + libVLC)
 ├── core/
 │   ├── model/            # Modèles métier & entités
 │   ├── common/           # Utilitaires, parseur de noms, empreinte fichier
@@ -68,6 +69,21 @@ Deux mécanismes distincts, depuis « Diffuser sur un écran » (menu d'une fich
 - **Chromecast standard** : seulement si le fichier est compatible (MP4/WebM, H.264, AAC/AC3/EAC3/MP3/FLAC/Opus/Vorbis ; HEVC/VP9/4K/HDR sur Chromecast Ultra et Google TV). Sinon un message explique chaque raison du refus et renvoie vers le mode compagnon. Limites : pas de sélection de piste ni de sous-titres, pas de sauvegarde de la position côté téléphone.
 
 Code : logique pure testée dans `core:common` (`cast/http`, `cast/protocol`, `cast/compat`), partie Android dans `feature:cast`, récepteur et interface Compose for TV dans `app-tv`.
+
+## 🖥 Version Windows (`app-desktop`)
+
+Exécutable Windows avec les fonctions de la version téléphone. Le PC peut aussi **recevoir depuis le téléphone** comme la TV : il s'annonce sur le réseau, affiche un code à 6 chiffres, puis lit le flux du téléphone, qui sert de télécommande.
+
+- Interface en Compose Multiplatform Desktop.
+- Lecture par libVLC embarqué : décodage GPU Direct3D 11, HDR, tous codecs.
+- Base de données SQLite.
+- Les modules `core:model`, `core:common`, le client TMDB et la logique de lecture sont partagés avec Android.
+
+```bash
+gradlew.bat :app-desktop:packageExe
+```
+
+Le détail (installation, raccourcis, auto-test, architecture) est dans [app-desktop/README.md](app-desktop/README.md).
 
 ## ⚙️ Configuration
 
