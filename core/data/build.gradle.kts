@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.base)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     // Room generated code is consumed through the DAOs exposed by core:database

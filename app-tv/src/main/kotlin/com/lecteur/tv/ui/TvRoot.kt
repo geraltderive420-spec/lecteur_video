@@ -31,7 +31,7 @@ import com.lecteur.feature.scanner.ui.FoldersScreen
 import com.lecteur.feature.scanner.ui.ReviewScreen
 import com.lecteur.tv.TvViewModel
 
-private val TABS = listOf("Accueil", "Films", "Séries", "Dossiers")
+private val TABS = listOf("Accueil", "Films", "Séries", "Partagés", "Dossiers")
 
 /**
  * The TV app: a tab row (focus moves selection), the library under it, and the player taking over the whole
@@ -73,6 +73,7 @@ fun TvRoot(viewModel: TvViewModel = hiltViewModel(), receiverViewModel: TvReceiv
                 tab == 0 -> TvHome(viewModel)
                 tab == 1 -> TvGrid(viewModel.movies, emptyText = "Aucun film dans la bibliothèque de cette TV.", onPlay = viewModel::playItem)
                 tab == 2 -> TvGrid(viewModel.series, emptyText = "Aucune série dans la bibliothèque de cette TV.", onPlay = viewModel::playItem)
+                tab == 3 -> TvShared(onPlay = viewModel::playPlan)
                 else -> FoldersScreen(onBack = { tab = 0 }, onOpenReview = { showReview = true })
             }
         }

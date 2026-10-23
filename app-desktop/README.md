@@ -41,6 +41,7 @@ Au premier lancement, Windows demande d'autoriser Lecteur Média sur le réseau 
 - **Diffusion** :
   - **Recevoir depuis le téléphone** : le PC s'annonce sur le réseau comme la TV et affiche un code à 6 chiffres. Le téléphone pilote ensuite la lecture (pistes, seek, volume…) et garde la progression.
   - **Diffuser vers un écran** : le PC envoie un film de sa bibliothèque à la TV (ou à un autre PC) et sert de télécommande.
+- **Partage de la bibliothèque** (façon Plex) : les téléphones et TV de la maison parcourent et lisent la bibliothèque du PC, avec une progression commune. Activation et appareils autorisés dans « Partage » ; chaque appareil s'associe une fois avec un code à usage unique et peut être retiré à tout moment. Port 47810 par défaut (autorisez Lecteur Média sur les réseaux privés dans le pare-feu). Détails et sécurité dans le [README principal](../README.md).
 
 ### Raccourcis du lecteur
 

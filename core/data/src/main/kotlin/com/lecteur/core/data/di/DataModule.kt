@@ -20,7 +20,7 @@ import com.lecteur.core.data.scan.SidecarReader
 import com.lecteur.core.data.settings.DataStorePlayerSettingsRepository
 import com.lecteur.core.data.settings.LibrarySettingsRepository
 import com.lecteur.core.model.MetadataLanguageSource
-import com.lecteur.core.data.watch.RoomWatchStateStore
+import com.lecteur.core.data.shared.SharedWatchStateStore
 import com.lecteur.core.database.AppDatabase
 import com.lecteur.core.database.dao.EpisodeDao
 import com.lecteur.core.database.dao.LibraryDao
@@ -80,7 +80,8 @@ object DatabaseModule {
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class BindingsModule {
-    @Binds abstract fun watchStateStore(impl: RoomWatchStateStore): WatchStateStore
+    // Local progress, plus the PC's for files streamed from a shared library
+    @Binds abstract fun watchStateStore(impl: SharedWatchStateStore): WatchStateStore
     @Binds abstract fun playerSettings(impl: DataStorePlayerSettingsRepository): PlayerSettingsRepository
     @Binds abstract fun folderWalker(impl: DocumentsContractWalker): FolderWalker
     @Binds abstract fun fileInspector(impl: AndroidFileInspector): FileInspector

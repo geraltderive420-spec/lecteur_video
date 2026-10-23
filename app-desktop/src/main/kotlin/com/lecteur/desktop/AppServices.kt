@@ -15,6 +15,7 @@ import com.lecteur.desktop.data.TmdbProvider
 import com.lecteur.desktop.player.PlaybackController
 import com.lecteur.desktop.player.Vlc
 import com.lecteur.desktop.player.VlcEngine
+import com.lecteur.desktop.share.LibraryShareService
 
 /** The app's object graph, built once at start (what Hilt does on Android). */
 class AppServices {
@@ -46,11 +47,13 @@ class AppServices {
     val streams = StreamHost()
     val receiver = ReceiverService(playback, settings, mdns)
     val remote = RemoteSession(store, settings, streams)
+    val share = LibraryShareService(store, settings, mdns, images)
 
     fun shutdown() {
         runCatching { playback.close() }
         runCatching { remote.disconnect() }
         runCatching { receiver.stop() }
+        runCatching { share.stop() }
         runCatching { mdns.close() }
         runCatching { streams.shutdown() }
         runCatching { engine.release() }

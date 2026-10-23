@@ -1,6 +1,7 @@
 package com.lecteur.desktop.data
 
 import com.lecteur.core.common.cast.protocol.PairingCode
+import com.lecteur.core.common.library.LibrarySignature
 import com.lecteur.core.model.LibrarySection
 import com.lecteur.core.model.LibraryView
 import com.lecteur.core.model.PosterSize
@@ -66,6 +67,18 @@ data class SectionSettings(
     val view: LibraryView = LibraryView.GRID
 )
 
+/** A phone or TV paired with the shared library; [secret] checks its signatures (it never travels after pairing). */
+@Serializable
+data class SharedDevice(
+    val id: String,
+    val name: String,
+    val secret: String,
+    val platform: String = "android",
+    val pairedAt: Long = 0,
+    val lastSeenAt: Long = 0,
+    val lastAddress: String? = null
+)
+
 @Serializable
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.DARK,
@@ -105,7 +118,13 @@ data class AppSettings(
     val receiverName: String = defaultDeviceName(),
     val pairingCode: String = PairingCode.generate(),
     /** Codes already accepted by the TVs this PC drives, by TV name. */
-    val remotePairings: Map<String, String> = emptyMap()
+    val remotePairings: Map<String, String> = emptyMap(),
+    /** Library sharing with the phones and TVs of the house (off until the user turns it on). */
+    val shareEnabled: Boolean = false,
+    /** Stable identity of this PC as a library server, so devices recognise it after an address change. */
+    val serverId: String = LibrarySignature.newId(),
+    /** Devices allowed to read the shared library. Removing one revokes it at once. */
+    val sharedDevices: List<SharedDevice> = emptyList()
 ) {
     fun section(section: LibrarySection) = if (section == LibrarySection.MOVIES) movies else series
 
@@ -133,7 +152,8 @@ class SettingsStore(private val file: File = AppDirs.settings) {
 
     private fun load(): AppSettings {
         val loaded = runCatching { json.decodeFromString(AppSettings.serializer(), file.readText()) }.getOrNull()
-        return (loaded ?: AppSettings()).also { if (loaded == null) save(it) }
+        // Saved even when read fine: defaults drawn at random (server id, pairing code) must not change at the next start
+        return (loaded ?: AppSettings()).also { save(it) }
     }
 
     @Synchronized

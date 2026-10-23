@@ -71,6 +71,13 @@ class TvViewModel @Inject constructor(
         open(prepared.request, prepared.resumePromptMs)
     }
 
+    /** A file of a PC's shared library: the request factory recognises the stream and asks the PC where it stopped. */
+    fun playPlan(plan: PlayPlan) = viewModelScope.launch {
+        val entry = plan.entries[plan.startIndex]
+        val prepared = runCatching { requestFactory.forUri(entry.uri) }.getOrNull() ?: return@launch
+        open(prepared.request, prepared.resumePromptMs)
+    }
+
     private fun open(request: com.lecteur.core.player.engine.PlaybackRequest, resumeMs: Long?) {
         // A TV remote has no comfortable "resume or restart?" dialog: it resumes, and the player's back key leaves.
         host.open(request.copy(startPositionMs = resumeMs ?: 0, playWhenReady = true), trackLocally = true)

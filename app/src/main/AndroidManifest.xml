@@ -19,6 +19,11 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
+    <!--
+        usesCleartextTraffic: the libraries shared by a PC and the TV's companion streams are served over plain HTTP on
+        the local network (an address like 192.168.x.y has no certificate). Requests are signed, URLs carry per-file
+        signatures, and the servers only answer devices of the LAN.
+    -->
     <application
         android:name=".LecteurApp"
         android:allowBackup="true"
@@ -26,7 +31,8 @@
         android:label="Lecteur Média"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

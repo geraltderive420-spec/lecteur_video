@@ -47,6 +47,9 @@ class ImageCache(private val dir: File = AppDirs.images) {
         urls.filter { it.startsWith("http") }.forEach { url -> scope.launch { runCatching { bytes(url) } } }
     }
 
+    /** The encoded image, from the disk cache or downloaded once: what the shared library sends to phones and TVs. */
+    suspend fun encoded(url: String): ByteArray? = withContext(Dispatchers.IO) { bytes(url) }
+
     private suspend fun bytes(url: String): ByteArray? {
         if (url.startsWith("file:")) return runCatching { File(URI(url)).readBytes() }.getOrNull()
         if (!url.startsWith("http")) return runCatching { File(url).takeIf { it.isFile }?.readBytes() }.getOrNull()

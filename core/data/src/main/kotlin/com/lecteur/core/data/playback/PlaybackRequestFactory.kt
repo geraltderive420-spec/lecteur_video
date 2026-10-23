@@ -1,6 +1,8 @@
 package com.lecteur.core.data.playback
 
+import com.lecteur.core.common.library.LibraryUrls
 import com.lecteur.core.common.parser.FilenameParser
+import com.lecteur.core.data.shared.SharedLibraryRepository
 import com.lecteur.core.database.dao.EpisodeDao
 import com.lecteur.core.database.dao.MediaFileDao
 import com.lecteur.core.database.dao.MetadataDao
@@ -37,21 +39,53 @@ class PlaybackRequestFactory @Inject constructor(
     private val seriesDao: SeriesDao,
     private val metadataDao: MetadataDao,
     private val watchStateStore: WatchStateStore,
-    private val settingsRepository: PlayerSettingsRepository
+    private val settingsRepository: PlayerSettingsRepository,
+    private val shared: SharedLibraryRepository
 ) {
-    /** File chosen by hand or opened from another app. */
+    /** File chosen by hand or opened from another app, or streamed from a shared library. */
     suspend fun forUri(uri: String): PreparedPlayback {
+        if (shared.isShared(uri)) return forShared(uri)
         val info = reader.read(uri)
         return build(registrar.register(uri, info))
+    }
+
+    /**
+     * A file of a PC's library. Nothing can be read through the content resolver: name, title and subtitles come from
+     * the PC, and so does the watch state when it is more recent than this device's (watched on the PC or the TV since).
+     */
+    private suspend fun forShared(uri: String): PreparedPlayback {
+        val description = shared.describe(uri)
+        val ref = LibraryUrls.parseStream(uri)!!
+        val name = description?.file?.fileName ?: uri.substringAfterLast('/').let { java.net.URLDecoder.decode(it, "UTF-8") }
+        val info = UriFileInfo(name, description?.file?.sizeBytes ?: 0, 0, "shared:${ref.deviceId}:${ref.fileId}")
+        val file = registrar.register(uri, info)
+        val local = watchStateStore.get(file.id)
+        val remote = description?.watch?.takeIf { it.lastWatchedAt > 0 }
+        val watch = if (remote != null && remote.lastWatchedAt > (local?.lastWatchedAt ?: 0L)) {
+            WatchState(
+                id = local?.id ?: 0, mediaFileId = file.id, positionMs = remote.positionMs, durationMs = remote.durationMs,
+                isCompleted = remote.completed, playCount = local?.playCount ?: 0, lastWatchedAt = remote.lastWatchedAt,
+                selectedAudioTrackIndex = remote.audioIndex, selectedSubtitleTrackIndex = remote.subtitleIndex,
+                audioDelayMs = remote.audioDelayMs, subtitleDelayMs = remote.subtitleDelayMs, displayMode = local?.displayMode
+            )
+        } else {
+            local
+        }
+        val prepared = build(file, watch)
+        val request = prepared.request.copy(
+            title = description?.title ?: prepared.request.title,
+            externalSubtitles = description?.subtitles.orEmpty()
+        )
+        return prepared.copy(request = request)
     }
 
     /** File already in the library. */
     suspend fun forMediaFile(mediaFileId: Long): PreparedPlayback? =
         mediaFileDao.getMediaFileById(mediaFileId)?.let { build(it) }
 
-    private suspend fun build(file: MediaFileEntity): PreparedPlayback {
+    private suspend fun build(file: MediaFileEntity, knownWatch: WatchState? = null): PreparedPlayback {
         val settings = settingsRepository.settings.first()
-        val watch = watchStateStore.get(file.id)
+        val watch = knownWatch ?: watchStateStore.get(file.id)
         val seriesPreference = file.episodeId
             ?.let { episodeDao.getEpisodeById(it)?.seriesId }
             ?.let { metadataDao.getSeriesPreference(it) }
@@ -60,7 +94,7 @@ class PlaybackRequestFactory @Inject constructor(
             uri = file.uri,
             title = libraryTitle(file) ?: displayTitle(file.fileName),
             mediaFileId = file.id,
-            externalSubtitles = subtitleLoader.find(file.uri),
+            externalSubtitles = if (shared.isShared(file.uri)) emptyList() else subtitleLoader.find(file.uri),
             languagePreferences = mergeLanguagePreferences(settings.languagePreferences, seriesPreference),
             savedAudioIndex = watch?.selectedAudioTrackIndex,
             savedSubtitleIndex = watch?.selectedSubtitleTrackIndex,

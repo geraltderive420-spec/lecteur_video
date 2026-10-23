@@ -85,6 +85,27 @@ gradlew.bat :app-desktop:packageExe
 
 Le détail (installation, raccourcis, auto-test, architecture) est dans [app-desktop/README.md](app-desktop/README.md).
 
+## 🏠 Bibliothèque partagée, façon Plex (PC → téléphones et TV)
+
+Le PC Windows sert sa bibliothèque aux téléphones et aux TV de la maison : ils la parcourent (affiches, résumés, saisons), lisent n'importe quel film ou épisode directement depuis le PC, et partagent **un seul état de visionnage**, celui du PC. Un film commencé sur la TV reprend au même endroit sur le téléphone ou sur le PC.
+
+- **Sur le PC** : « Partage » dans la barre latérale → activer, puis « Associer un appareil » affiche un code à 6 chiffres.
+- **Sur le téléphone** : onglet « Partagés » → le PC apparaît tout seul (découverte réseau `_lecteurlib._tcp`) → saisir le code. On peut aussi saisir l'adresse du PC à la main.
+- **Sur la TV** : onglet « Partagés », même principe ; la TV lit avec son propre moteur (MKV, DTS, HDR…).
+- Le fichier original est envoyé tel quel (HTTP avec plages d'octets) : aucun transcodage, le lecteur de l'appareil décode. Les sous-titres externes (`.srt`, `.ass`…) suivent. Une série s'enchaîne d'épisode en épisode sur le téléphone.
+
+**Sécurité**
+
+- Désactivé par défaut. Seuls les appareils du **réseau local** reçoivent une réponse (adresses privées, lien local, IPv6 ULA) : rien n'est exposé sur Internet.
+- **Appairage** uniquement pendant que la fenêtre « Associer un appareil » est ouverte sur le PC : code à usage unique, valable 5 minutes, fermé après 5 essais faux. Une adresse qui accumule les refus est mise à l'écart quelques minutes.
+- Après l'appairage, l'appareil reçoit une clé de 256 bits qui **ne circule plus jamais** : chaque requête est signée (HMAC-SHA256 de la méthode, du chemin, de l'heure et du corps), refusée au-delà de 5 minutes d'écart, et une écriture ne peut pas être rejouée.
+- Les liens de lecture (flux, sous-titres, affiches) portent une signature propre à **un seul fichier** : impossible d'en déduire un autre. Les affiches sont désignées par une clé opaque, jamais par un chemin du disque.
+- « Retirer » un appareil sur le PC coupe immédiatement son accès, liens déjà ouverts compris.
+- Les appareils ne peuvent que lire la bibliothèque et l'état de visionnage : ni modifier ni supprimer.
+- Limite connue : le trafic n'est pas chiffré (HTTP sur le réseau local, comme le mode compagnon) ; quelqu'un sur le même Wi-Fi pourrait voir quel fichier est regardé, sans pouvoir s'associer ni ouvrir d'autres fichiers.
+
+Code : protocole, serveur, client et sécurité dans `core:common` (`library`, testés de bout en bout), serveur du PC dans `app-desktop` (`share`), client Android dans `core:data` (`shared`) et `feature:shared`, écran TV dans `app-tv`.
+
 ## ⚙️ Configuration
 
 1. Cloner le dépôt :

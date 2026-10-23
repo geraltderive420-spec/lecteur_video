@@ -22,6 +22,7 @@ import com.lecteur.core.common.cast.protocol.SetMuted
 import com.lecteur.core.common.cast.protocol.SetSpeed
 import com.lecteur.core.common.cast.protocol.SetVolume
 import com.lecteur.core.common.cast.protocol.Stop
+import com.lecteur.core.common.library.LibraryUrls
 import com.lecteur.core.data.playback.PlaybackRequestFactory
 import com.lecteur.core.player.resume.PlaybackSnapshot
 import com.lecteur.core.player.resume.ResumeTracker
@@ -110,17 +111,28 @@ class RemoteSession @Inject constructor(
 
     /** Sends a library file to the TV. [fromStart] ignores the saved position. */
     suspend fun cast(mediaFileId: Long, fromStart: Boolean = false) {
-        val prepared = requestFactory.forMediaFile(mediaFileId)
-        if (prepared == null) return notice("Ce fichier n'est plus dans la bibliothèque.")
-        val shared = try {
-            streamHost.share(mediaFileId)
-        } catch (e: ShareFailure) {
-            return notice(e.message ?: "Impossible de partager ce fichier.")
+        val local = requestFactory.forMediaFile(mediaFileId)
+        if (local == null) return notice("Ce fichier n'est plus dans la bibliothèque.")
+        // A file of a PC's shared library: the TV fetches it from the PC itself (the URL is signed for that one file),
+        // the phone only drives; title, subtitles and resume point come from the PC
+        val fromPc = LibraryUrls.parseStream(local.request.uri) != null
+        val prepared = if (fromPc) requestFactory.forUri(local.request.uri) else local
+        val streamUrl = if (fromPc) {
+            revokeTokens()
+            prepared.request.uri
+        } else {
+            val shared = try {
+                streamHost.share(mediaFileId)
+            } catch (e: ShareFailure) {
+                return notice(e.message ?: "Impossible de partager ce fichier.")
+            }
+            revokeTokens()
+            mediaTokens += shared.token
+            shared.url
         }
-        revokeTokens()
-        mediaTokens += shared.token
 
         val subtitles = prepared.request.externalSubtitles.mapNotNull { sub ->
+            if (fromPc) return@mapNotNull RemoteSubtitle(sub.uri, sub.mimeType, sub.language, sub.label, sub.isForced)
             runCatching { streamHost.shareSideFile(sub.uri, sub.mimeType) }.getOrNull()?.let {
                 mediaTokens += it.token
                 RemoteSubtitle(it.url, sub.mimeType, sub.language, sub.label, sub.isForced)
@@ -134,7 +146,7 @@ class RemoteSession @Inject constructor(
 
         val sent = client?.send(
             Open(
-                streamUrl = shared.url,
+                streamUrl = streamUrl,
                 title = request.title,
                 mediaFileId = mediaFileId,
                 startPositionMs = start,
@@ -147,6 +159,12 @@ class RemoteSession @Inject constructor(
             )
         ) == true
         if (!sent) notice("La connexion avec la TV est perdue.")
+    }
+
+    /** Casts a file known only by its URI (a file of a PC's shared library, opened from its screens). */
+    suspend fun castUri(uri: String) {
+        val prepared = runCatching { requestFactory.forUri(uri) }.getOrNull() ?: return notice("Impossible d'ouvrir ce fichier.")
+        cast(prepared.request.mediaFileId)
     }
 
     fun play() = send(Play)

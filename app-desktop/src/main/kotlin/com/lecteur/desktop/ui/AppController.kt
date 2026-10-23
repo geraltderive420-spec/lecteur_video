@@ -30,6 +30,7 @@ sealed interface Screen {
     data object Review : Screen
     data class Explorer(val path: String? = null) : Screen
     data object Cast : Screen
+    data object Share : Screen
     data object Settings : Screen
 }
 

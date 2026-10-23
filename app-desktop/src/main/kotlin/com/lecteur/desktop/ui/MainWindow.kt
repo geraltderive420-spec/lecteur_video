@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
@@ -149,6 +150,7 @@ private fun ScreenContent(screen: Screen) {
         Screen.Review -> ReviewScreen()
         is Screen.Explorer -> ExplorerScreen(screen.path)
         Screen.Cast -> CastScreen()
+        Screen.Share -> ShareScreen()
         Screen.Settings -> SettingsScreen()
     }
 }
@@ -177,6 +179,7 @@ private fun SideBar() {
         item(Screen.Lists, "Listes", Icons.AutoMirrored.Outlined.List)
         item(Screen.Explorer(), "Fichiers", Icons.Filled.TravelExplore, root is Screen.Explorer)
         item(Screen.Cast, "Diffusion", if (castActive) Icons.Filled.CastConnected else Icons.Filled.Cast)
+        item(Screen.Share, "Partage", Icons.Filled.Devices)
         Spacer(Modifier.weight(1f))
         if (scan.running) {
             androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)

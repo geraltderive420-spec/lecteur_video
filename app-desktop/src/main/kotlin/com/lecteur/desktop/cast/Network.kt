@@ -1,6 +1,7 @@
 package com.lecteur.desktop.cast
 
 import com.lecteur.core.common.cast.protocol.ReceiverAdvert
+import com.lecteur.core.common.library.LibraryAdvert
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,8 +60,10 @@ data class DiscoveredReceiver(val serviceName: String, val deviceName: String, v
  */
 class Mdns {
     private val type = ReceiverAdvert.SERVICE_TYPE.trimEnd('.') + ".local."
+    private val libraryType = LibraryAdvert.SERVICE_TYPE.trimEnd('.') + ".local."
     private var responders: List<JmDNS> = emptyList()
-    private var advertised: ServiceInfo? = null
+    /** Services this PC announces, by role: the companion receiver and the shared library live side by side. */
+    private val advertised = HashMap<String, ServiceInfo>()
     private var browsing = false
 
     private val _receivers = MutableStateFlow<List<DiscoveredReceiver>>(emptyList())
@@ -77,19 +80,34 @@ class Mdns {
     }
 
     @Synchronized
-    fun advertise(advert: ReceiverAdvert) {
-        unadvertise()
-        val info = ServiceInfo.create(type, advert.serviceName(), advert.port, 0, 0, advert.toTxt())
-        ensureResponders().forEach { runCatching { it.registerService(info.clone()) } }
-        advertised = info
-    }
+    fun advertise(advert: ReceiverAdvert) = register(ROLE_RECEIVER, ServiceInfo.create(type, advert.serviceName(), advert.port, 0, 0, advert.toTxt()))
 
     @Synchronized
-    fun unadvertise() {
-        advertised ?: return
-        responders.forEach { r -> runCatching { r.unregisterAllServices() } }
-        advertised = null
+    fun unadvertise() = unregister(ROLE_RECEIVER)
+
+    /** The shared library, under its own service type: the phone's library list finds it, its cast picker does not. */
+    @Synchronized
+    fun advertiseLibrary(advert: LibraryAdvert) =
+        register(ROLE_LIBRARY, ServiceInfo.create(libraryType, advert.serviceName(), advert.port, 0, 0, advert.toTxt()))
+
+    @Synchronized
+    fun unadvertiseLibrary() = unregister(ROLE_LIBRARY)
+
+    private fun register(role: String, info: ServiceInfo) {
+        unregister(role)
+        // Each responder needs its own copy: jmDNS binds a ServiceInfo to the instance that registered it
+        val copies = ensureResponders().mapNotNull { r -> info.clone().takeIf { runCatching { r.registerService(it) }.isSuccess } }
+        advertised[role] = info
+        registered[role] = copies
     }
+
+    private fun unregister(role: String) {
+        advertised.remove(role) ?: return
+        val copies = registered.remove(role).orEmpty()
+        responders.forEach { r -> copies.forEach { c -> runCatching { r.unregisterService(c) } } }
+    }
+
+    private val registered = HashMap<String, List<ServiceInfo>>()
 
     @Synchronized
     fun startBrowsing() {
@@ -115,6 +133,7 @@ class Mdns {
 
     fun close() {
         unadvertise()
+        unadvertiseLibrary()
         responders.forEach { runCatching { it.close() } }
         responders = emptyList()
     }
@@ -122,12 +141,17 @@ class Mdns {
     private fun add(info: ServiceInfo) {
         if (!info.name.startsWith(ReceiverAdvert.SERVICE_PREFIX)) return
         // Our own advert (same name) is not a target
-        if (advertised?.name == info.name) return
+        if (advertised[ROLE_RECEIVER]?.name == info.name) return
         val txt = info.propertyNames.toList().associateWith { info.getPropertyString(it) ?: "" }
         val advert = ReceiverAdvert.parse(info.name, info.port, txt) ?: return
         val host = info.inet4Addresses.firstOrNull()?.hostAddress ?: return
         val found = DiscoveredReceiver(info.name, advert.deviceName, host, info.port)
         _receivers.update { list -> (list.filterNot { it.serviceName == found.serviceName } + found).sortedBy { it.deviceName } }
+    }
+
+    private companion object {
+        const val ROLE_RECEIVER = "receiver"
+        const val ROLE_LIBRARY = "library"
     }
 
     private val listener = object : ServiceListener {

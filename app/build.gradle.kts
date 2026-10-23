@@ -63,6 +63,7 @@ dependencies {
     implementation(project(":feature:scanner"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:cast"))
+    implementation(project(":feature:shared"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

@@ -135,6 +135,13 @@ class LibraryStore(val db: Db) {
         }
     }
 
+    /** Subtitle files next to the videos, per file (what the shared library offers along with each stream). */
+    fun externalSubtitlesByFile(): Map<Long, List<SubtitleTrackRow>> = db.read {
+        query("SELECT * FROM subtitle_tracks WHERE external_path IS NOT NULL ORDER BY idx") {
+            it.long("media_file_id") to SubtitleTrackRow(it.int("idx"), it.str("language"), it.str("codec"), it.str("external_path"), it.str("title"), it.bool("is_forced"))
+        }
+    }.groupBy({ it.first }, { it.second })
+
     /** All audio languages per file, for the filters. */
     fun audioLanguagesByFile(): Map<Long, Set<String>> = db.read {
         query("SELECT media_file_id, language FROM audio_tracks WHERE language IS NOT NULL") { it.long("media_file_id") to it.str("language")!! }

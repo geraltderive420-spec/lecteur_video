@@ -57,6 +57,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:player"))
     implementation(project(":feature:cast"))
+    implementation(project(":feature:shared"))
     implementation(project(":feature:scanner"))
 
     implementation(platform(libs.compose.bom))

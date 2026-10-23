@@ -111,6 +111,8 @@ private fun ReceiverCard() {
                     TextButton(enabled = name.isNotBlank() && name != settings.receiverName, onClick = {
                         a.services.settings.update { it.copy(receiverName = name.trim()) }
                         a.services.receiver.restart()
+                        // The shared library is announced under the same name
+                        if (a.services.share.ui.value.running) a.services.share.restart()
                     }) { Text("Renommer") }
                 }
                 TextButton(onClick = { a.services.receiver.newPairingCode() }) { Text("Générer un nouveau code (déconnecte les téléphones appairés)") }

@@ -18,6 +18,7 @@ fun main() {
 
     val services = AppServices()
     if (services.settings.value.receiverEnabled) services.receiver.start()
+    if (services.settings.value.shareEnabled) services.share.start()
     if (services.settings.value.scanOnStart) services.scanner.start()
     // Periodic rescan while the app is open (new episodes downloaded overnight...)
     Thread({

@@ -47,6 +47,18 @@ sealed class Screen(val route: String) {
     }
     data object Welcome : Screen("welcome")
     data object Remote : Screen("remote")
+
+    /** PCs sharing their library, and what each of them shares (the PC id is the route's first argument). */
+    data object Shared : Screen("shared")
+    data object SharedLibrary : Screen("shared/{serverId}") {
+        fun create(serverId: String) = "shared/$serverId"
+    }
+    data object SharedMovie : Screen("shared/{serverId}/movie/{movieId}") {
+        fun create(serverId: String, id: Long) = "shared/$serverId/movie/$id"
+    }
+    data object SharedSeries : Screen("shared/{serverId}/series/{seriesId}") {
+        fun create(serverId: String, id: Long) = "shared/$serverId/series/$id"
+    }
     data object Lists : Screen("lists")
 
     companion object {
@@ -54,6 +66,6 @@ sealed class Screen(val route: String) {
          * Routes that show the navigation bar. A getter, not a stored value: the companion is initialised while the first
          * subclass (Home...) is still being constructed, and reading `Home.route` at that point finds it null.
          */
-        val topLevel: Set<String> get() = setOf(Home.route, Library.route, Explorer.route, Settings.route)
+        val topLevel: Set<String> get() = setOf(Home.route, Library.route, Shared.route, Explorer.route, Settings.route)
     }
 }

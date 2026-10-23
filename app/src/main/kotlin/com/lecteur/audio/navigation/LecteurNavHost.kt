@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
@@ -56,12 +57,18 @@ import com.lecteur.feature.scanner.ui.FoldersScreen
 import com.lecteur.feature.scanner.ui.ReviewScreen
 import com.lecteur.feature.scanner.ui.ScanStatusBanner
 import com.lecteur.feature.settings.SettingsScreen
+import com.lecteur.feature.shared.SharedLibraryViewModel
+import com.lecteur.feature.shared.ui.SharedLibraryScreen
+import com.lecteur.feature.shared.ui.SharedMovieScreen
+import com.lecteur.feature.shared.ui.SharedSeriesScreen
+import com.lecteur.feature.shared.ui.SharedServersScreen
 
 private class Tab(val route: String, val target: String, val label: String, val icon: ImageVector)
 
 private val TABS = listOf(
     Tab(Screen.Home.route, Screen.Home.route, "Accueil", Icons.Rounded.Home),
     Tab(Screen.Library.route, Screen.Library.create(LibrarySection.MOVIES), "Bibliothèque", Icons.Rounded.VideoLibrary),
+    Tab(Screen.Shared.route, Screen.Shared.route, "Partagés", Icons.Rounded.Computer),
     Tab(Screen.Explorer.route, Screen.Explorer.route, "Dossiers", Icons.Rounded.Folder),
     Tab(Screen.Settings.route, Screen.Settings.route, "Réglages", Icons.Rounded.Settings)
 )
@@ -259,6 +266,30 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
         }
 
         composable(Screen.Remote.route) { RemoteScreen(onBack = back) }
+
+        composable(Screen.Shared.route) {
+            SharedServersScreen(onOpenServer = { nav.navigate(Screen.SharedLibrary.create(it)) })
+        }
+
+        val serverArg = navArgument(SharedLibraryViewModel.ARG_SERVER) { type = NavType.StringType }
+        composable(Screen.SharedLibrary.route, arguments = listOf(serverArg)) { entry ->
+            val serverId = entry.arguments?.getString(SharedLibraryViewModel.ARG_SERVER).orEmpty()
+            SharedLibraryScreen(
+                onBack = back,
+                onOpenMovie = { nav.navigate(Screen.SharedMovie.create(serverId, it)) },
+                onOpenSeries = { nav.navigate(Screen.SharedSeries.create(serverId, it)) },
+                onPlay = onPlay,
+                onForgotten = back
+            )
+        }
+
+        composable(Screen.SharedMovie.route, arguments = listOf(serverArg, navArgument("movieId") { type = NavType.LongType })) { entry ->
+            SharedMovieScreen(movieId = entry.arguments?.getLong("movieId") ?: 0L, onBack = back, onPlay = onPlay)
+        }
+
+        composable(Screen.SharedSeries.route, arguments = listOf(serverArg, navArgument("seriesId") { type = NavType.LongType })) { entry ->
+            SharedSeriesScreen(seriesId = entry.arguments?.getLong("seriesId") ?: 0L, onBack = back, onPlay = onPlay)
+        }
 
         composable(Screen.Lists.route) {
             ListsScreen(onBack = back, onOpenList = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.LIST, id) })

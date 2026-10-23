@@ -39,6 +39,7 @@ include(":feature:player")
 include(":feature:scanner")
 include(":feature:settings")
 include(":feature:cast")
+include(":feature:shared")
 
 // App targets
 include(":app")
