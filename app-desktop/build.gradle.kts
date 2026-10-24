@@ -15,7 +15,7 @@ val tmdbApiKey: String = run {
     (fromFile ?: System.getenv("TMDB_API_KEY") ?: "").trim()
 }
 
-val appVersion = "1.0.7"
+val appVersion = "1.0.8"
 
 val generateBuildConfig by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildconfig")
