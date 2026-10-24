@@ -19,8 +19,9 @@ import java.io.File
 import java.net.InetAddress
 
 /**
- * Where the app keeps its files: %LOCALAPPDATA%\LecteurMedia\data (database, image cache, settings). Not the install
- * folder itself (%LOCALAPPDATA%\LecteurMedia for a per-user install): updates and uninstalls must not touch the library.
+ * Where the app keeps its files: %LOCALAPPDATA%\LecteurMedia-data (database, image cache, settings), next to the install
+ * folder (%LOCALAPPDATA%\LecteurMedia for a per-user install), never inside it: an update uninstalls the previous
+ * version, and the installer deletes its whole folder.
  */
 object AppDirs {
     private val DATA_FILES = listOf("library.db", "library.db-wal", "library.db-shm", "settings.json", "images")
@@ -29,11 +30,15 @@ object AppDirs {
         // LECTEUR_DATA_DIR: a separate library (tests, a second profile)
         System.getenv("LECTEUR_DATA_DIR")?.takeIf { it.isNotBlank() }?.let { return@run File(it).apply { mkdirs() } }
         val base = System.getenv("LOCALAPPDATA")?.let(::File) ?: File(System.getProperty("user.home"), ".lecteurmedia")
-        val legacy = File(base, "LecteurMedia")
-        val data = File(legacy, "data").apply { mkdirs() }
-        // First versions wrote next to the program: move the library over once
+        val install = File(base, "LecteurMedia")
+        val data = File(base, "LecteurMedia-data").apply { mkdirs() }
+        // Earlier versions wrote inside the install folder (in data\, the very first ones next to the program):
+        // the library moves out once
         if (!File(data, "library.db").exists()) {
-            DATA_FILES.map { File(legacy, it) }.filter { it.exists() }.forEach { runCatching { it.renameTo(File(data, it.name)) } }
+            listOf(File(install, "data"), install).forEach { old ->
+                DATA_FILES.map { File(old, it) }.filter { it.exists() && !File(data, it.name).exists() }
+                    .forEach { runCatching { it.renameTo(File(data, it.name)) } }
+            }
         }
         data
     }

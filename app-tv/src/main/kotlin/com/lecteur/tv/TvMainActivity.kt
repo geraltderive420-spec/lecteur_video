@@ -22,7 +22,13 @@ class TvMainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             LecteurTheme(darkTheme = true, dynamicColor = false) {
-                TvRoot()
+                // Compose for TV components read their own theme: without it, their text is dark on the dark background
+                androidx.tv.material3.MaterialTheme(colorScheme = androidx.tv.material3.darkColorScheme()) {
+                    // Text outside a Surface takes this colour (black by default)
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.tv.material3.LocalContentColor provides androidx.compose.ui.graphics.Color.White) {
+                        TvRoot()
+                    }
+                }
             }
         }
     }

@@ -18,7 +18,9 @@ data class ShelfCard(
     val progress: Float,
     val movieId: Long? = null,
     val seriesId: Long? = null,
-    val episodeId: Long? = null
+    val episodeId: Long? = null,
+    /** When it was last watched: rows mixing several libraries are sorted by it. */
+    val at: Long = 0
 )
 
 /** The home rows of a shared library, computed from the catalog alone (the watch state in it is the PC's). */
@@ -40,7 +42,7 @@ object SharedShelves {
                 ShelfCard("e${episode.id}", s.title, episodeLabel(episode), episode.still ?: s.backdrop, watch.progress, seriesId = s.id, episodeId = episode.id)
             )
         }
-        return (movies + episodes).sortedByDescending { it.at }.take(limit).map { it.card }
+        return (movies + episodes).sortedByDescending { it.at }.take(limit).map { it.card.copy(at = it.at) }
     }
 
     /** For each series already followed: the episode after the last one finished, if it is not started yet. */
@@ -51,7 +53,7 @@ object SharedShelves {
             val next = s.episodes.dropWhile { it.id != lastDone.id }.drop(1).firstOrNull { !it.isCompleted() } ?: return@mapNotNull null
             if (next.files.any { it.isStarted() }) return@mapNotNull null
             at to ShelfCard("n${next.id}", s.title, episodeLabel(next), next.still ?: s.backdrop, 0f, seriesId = s.id, episodeId = next.id)
-        }.sortedByDescending { it.first }.take(limit).map { it.second }
+        }.sortedByDescending { it.first }.take(limit).map { it.second.copy(at = it.first) }
 
     fun recentlyAdded(catalog: Catalog, limit: Int = 20): List<ShelfCard> =
         (catalog.movies.map { it.addedAt to ShelfCard("m${it.id}", it.title, it.year?.toString(), it.poster, 0f, movieId = it.id) } +

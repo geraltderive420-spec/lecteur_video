@@ -57,7 +57,15 @@ class SharedServersViewModel @Inject constructor(
     private val browser = LibraryBrowser(context)
     private val local = MutableStateFlow(ServersUi())
 
-    val ui: StateFlow<ServersUi> = combine(repository.servers, browser.servers, local) { paired, nearby, state ->
+    /**
+     * Adverts checked by asking the PC itself, by service name. A copy of the app killed without a goodbye leaves its
+     * advert on the network for up to an hour ("PC (2)", an old port): only a PC that answers, with the identity it
+     * announces, is listed.
+     */
+    private val verified = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    val ui: StateFlow<ServersUi> = combine(repository.servers, browser.servers, local, verified) { paired, found, state, checked ->
+        val nearby = found.filter { checked[it.serviceName + it.baseUrl] == true }
         // A paired PC found at a new address (DHCP): follow it
         nearby.forEach { n -> paired.firstOrNull { it.serverId == n.serverId }?.let { repository.updateAddress(it.serverId, n.baseUrl, n.name) } }
         state.copy(
@@ -68,6 +76,18 @@ class SharedServersViewModel @Inject constructor(
 
     init {
         browser.start()
+        viewModelScope.launch {
+            browser.servers.collect { found ->
+                found.filter { (it.serviceName + it.baseUrl) !in verified.value }.forEach { server ->
+                    val key = server.serviceName + server.baseUrl
+                    verified.update { it + (key to false) }
+                    launch {
+                        val answers = runCatching { repository.probe(server.baseUrl).serverId == server.serverId }.getOrDefault(false)
+                        verified.update { it + (key to answers) }
+                    }
+                }
+            }
+        }
     }
 
     override fun onCleared() {
@@ -76,6 +96,7 @@ class SharedServersViewModel @Inject constructor(
 
     /** Looks for PCs again (a PC switched on after the screen was opened). */
     fun rescan() {
+        verified.value = emptyMap()
         browser.stop()
         browser.start()
     }

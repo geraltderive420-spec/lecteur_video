@@ -1,6 +1,7 @@
 package com.lecteur.desktop.share
 
 import com.lecteur.core.common.library.Catalog
+import com.lecteur.core.common.library.CreditDto
 import com.lecteur.core.common.library.DeviceDirectory
 import com.lecteur.core.common.library.EpisodeDto
 import com.lecteur.core.common.library.FileDto
@@ -23,12 +24,14 @@ import com.lecteur.core.model.WatchState
 import com.lecteur.desktop.cast.LocalAddress
 import com.lecteur.desktop.cast.Mdns
 import com.lecteur.desktop.cast.StreamHost
+import com.lecteur.desktop.data.CreditRow
 import com.lecteur.desktop.data.FileEntry
 import com.lecteur.desktop.data.ImageCache
 import com.lecteur.desktop.data.LibrarySnapshot
 import com.lecteur.desktop.data.LibraryStore
 import com.lecteur.desktop.data.SettingsStore
 import com.lecteur.desktop.data.SharedDevice
+import com.lecteur.desktop.ui.bestAudioLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -241,6 +244,7 @@ class LibraryShareService(
         val url = when (kind) {
             'p' -> ImageUrls.poster(path)
             'b' -> ImageUrls.backdrop(path)
+            'r' -> ImageUrls.profile(path)
             else -> ImageUrls.still(path)
         } ?: return null
         val digest = MessageDigest.getInstance("SHA-1").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -258,9 +262,17 @@ class LibraryShareService(
 
     private fun catalog(snapshot: LibrarySnapshot): Catalog {
         val s = settings.value
-        val subtitles = store.externalSubtitlesByFile()
+        val subtitles = store.subtitleTracksByFile()
+        val audio = store.audioTracksByFile()
+        val credits = store.allCredits()
+        val movieCast = credits.filter { it.first != null }.groupBy({ it.first!! }, { it.third })
+        val seriesCast = credits.filter { it.second != null }.groupBy({ it.second!! }, { it.third })
+        fun cast(rows: List<CreditRow>?) = rows.orEmpty().take(MAX_CAST).map { CreditDto(it.personId, it.name, it.role, art(it.profile, 'r'), it.isDirector) }
+        fun languages(codes: List<String?>) = codes.mapNotNull { it?.let(LibrarySnapshot::normaliseLanguage) }.distinct()
         fun file(entry: FileEntry): FileDto {
             val f = entry.file
+            val tracks = audio[f.id].orEmpty()
+            val subs = subtitles[f.id].orEmpty()
             return FileDto(
                 id = f.id,
                 fileName = f.fileName,
@@ -272,9 +284,13 @@ class LibraryShareService(
                 videoCodec = f.videoCodec.takeIf { it != VideoCodec.UNKNOWN }?.name,
                 available = f.isAvailable,
                 watch = entry.watch?.let(::watchDto),
-                subtitles = subtitles[f.id].orEmpty().filter { File(it.externalPath!!).isFile }.map {
+                subtitles = subs.filter { it.externalPath != null && File(it.externalPath).isFile }.map {
                     SubtitleDto(it.index, it.language, it.title, it.isForced, StreamHost.mimeFor(it.externalPath!!))
-                }
+                },
+                container = f.container,
+                audio = bestAudioLabel(tracks),
+                audioLanguages = languages(tracks.map { it.language }),
+                subtitleLanguages = languages(subs.map { it.language })
             )
         }
 
@@ -283,7 +299,10 @@ class LibraryShareService(
             MovieDto(
                 id = m.id, title = m.title, year = m.year, overview = m.overview, poster = art(m.posterPath, 'p'),
                 backdrop = art(m.backdropPath, 'b'), rating = m.rating, runtimeMinutes = m.runtimeMinutes,
-                genres = e.genreIds.mapNotNull { snapshot.genres[it] }, addedAt = m.addedAt, files = e.files.map(::file)
+                genres = e.genreIds.mapNotNull { snapshot.genres[it] }, addedAt = m.addedAt, files = e.files.map(::file),
+                originalTitle = m.originalTitle?.takeIf { it != m.title }, releaseDate = m.releaseDate, certification = m.certification,
+                tmdbId = m.tmdbId, imdbId = m.imdbId, trailerKey = m.trailerKey, collection = m.collectionId?.let { snapshot.collections[it] },
+                cast = cast(movieCast[m.id])
             )
         }.sortedBy { it.title.lowercase() }
 
@@ -297,9 +316,12 @@ class LibraryShareService(
                 episodes = e.owned.map { ep ->
                     EpisodeDto(
                         id = ep.episode.id, season = ep.episode.seasonNumber, number = ep.episode.episodeNumber, title = ep.episode.title,
-                        overview = ep.episode.overview, still = art(ep.episode.stillPath, 's'), files = ep.files.map(::file)
+                        overview = ep.episode.overview, still = art(ep.episode.stillPath, 's'), files = ep.files.map(::file),
+                        airDate = ep.episode.airDate, runtimeMinutes = ep.episode.runtimeMinutes
                     )
-                }
+                },
+                originalTitle = sr.originalTitle?.takeIf { it != sr.title }, firstAirDate = sr.firstAirDate, status = sr.status,
+                certification = sr.certification, tmdbId = sr.tmdbId, imdbId = sr.imdbId, cast = cast(seriesCast[sr.id])
             )
         }.sortedBy { it.title.lowercase() }
 
@@ -322,5 +344,7 @@ class LibraryShareService(
 
     private companion object {
         const val SEEN_WRITE_INTERVAL_MS = 10L * 60 * 1000
+        /** The detail pages show the first actors; the rest would only weigh down the catalog. */
+        const val MAX_CAST = 20
     }
 }

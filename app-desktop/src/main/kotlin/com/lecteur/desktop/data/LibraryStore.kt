@@ -135,10 +135,17 @@ class LibraryStore(val db: Db) {
         }
     }
 
-    /** Subtitle files next to the videos, per file (what the shared library offers along with each stream). */
-    fun externalSubtitlesByFile(): Map<Long, List<SubtitleTrackRow>> = db.read {
-        query("SELECT * FROM subtitle_tracks WHERE external_path IS NOT NULL ORDER BY idx") {
+    /** Every subtitle track, per file, in one read (the shared library's catalog lists them all). */
+    fun subtitleTracksByFile(): Map<Long, List<SubtitleTrackRow>> = db.read {
+        query("SELECT * FROM subtitle_tracks ORDER BY idx") {
             it.long("media_file_id") to SubtitleTrackRow(it.int("idx"), it.str("language"), it.str("codec"), it.str("external_path"), it.str("title"), it.bool("is_forced"))
+        }
+    }.groupBy({ it.first }, { it.second })
+
+    /** Every audio track, per file, in one read. */
+    fun audioTracksByFile(): Map<Long, List<AudioTrackRow>> = db.read {
+        query("SELECT * FROM audio_tracks ORDER BY idx") {
+            it.long("media_file_id") to AudioTrackRow(it.int("idx"), it.str("language"), runCatching { AudioCodec.valueOf(it.str("codec")!!) }.getOrDefault(AudioCodec.UNKNOWN), it.int("channels"), it.str("title"), it.bool("is_default"))
         }
     }.groupBy({ it.first }, { it.second })
 
@@ -326,6 +333,13 @@ class LibraryStore(val db: Db) {
                WHERE ${if (movieId != null) "c.movie_id = ?" else "c.series_id = ?"} ORDER BY c.is_director DESC, c.ord""",
             movieId ?: seriesId
         ) { CreditRow(it.long("person_id"), it.str("name")!!, it.str("profile"), it.str("role"), it.int("ord"), it.bool("is_director")) }
+    }
+
+    /** Every credit of every title in one read: (movie id or null, series id or null, credit). */
+    fun allCredits(): List<Triple<Long?, Long?, CreditRow>> = db.read {
+        query(
+            "SELECT c.*, p.name, p.profile FROM credits c JOIN people p ON p.id = c.person_id ORDER BY c.is_director DESC, c.ord"
+        ) { Triple(it.longOrNull("movie_id"), it.longOrNull("series_id"), CreditRow(it.long("person_id"), it.str("name")!!, it.str("profile"), it.str("role"), it.int("ord"), it.bool("is_director"))) }
     }
 
     data class PersonCredits(val personId: Long, val name: String, val profile: String?, val movieIds: Set<Long>, val seriesIds: Set<Long>)

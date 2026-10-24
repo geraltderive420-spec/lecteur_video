@@ -74,7 +74,23 @@ data class FileDto(
     val available: Boolean = true,
     val watch: WatchDto? = null,
     /** External subtitle files next to the video (embedded tracks come with the stream). */
-    val subtitles: List<SubtitleDto> = emptyList()
+    val subtitles: List<SubtitleDto> = emptyList(),
+    val container: String? = null,
+    /** The best audio track, as the detail pages show it: "TrueHD 7.1", "Dolby Digital 5.1"... */
+    val audio: String? = null,
+    val audioLanguages: List<String> = emptyList(),
+    /** Embedded and external subtitle languages. */
+    val subtitleLanguages: List<String> = emptyList()
+)
+
+/** Someone in a title's cast or crew. [profile] is an artwork key, like posters. */
+@Serializable
+data class CreditDto(
+    val personId: Long,
+    val name: String,
+    val role: String? = null,
+    val profile: String? = null,
+    val director: Boolean = false
 )
 
 @Serializable
@@ -89,7 +105,17 @@ data class MovieDto(
     val runtimeMinutes: Int? = null,
     val genres: List<String> = emptyList(),
     val addedAt: Long = 0,
-    val files: List<FileDto> = emptyList()
+    val files: List<FileDto> = emptyList(),
+    val originalTitle: String? = null,
+    val releaseDate: String? = null,
+    val certification: String? = null,
+    val tmdbId: Long? = null,
+    val imdbId: String? = null,
+    /** YouTube key of the trailer. */
+    val trailerKey: String? = null,
+    /** Name of the TMDB saga the film belongs to. */
+    val collection: String? = null,
+    val cast: List<CreditDto> = emptyList()
 )
 
 @Serializable
@@ -103,7 +129,9 @@ data class EpisodeDto(
     val title: String? = null,
     val overview: String? = null,
     val still: String? = null,
-    val files: List<FileDto> = emptyList()
+    val files: List<FileDto> = emptyList(),
+    val airDate: String? = null,
+    val runtimeMinutes: Int? = null
 )
 
 @Serializable
@@ -119,7 +147,14 @@ data class SeriesDto(
     val addedAt: Long = 0,
     val seasons: List<SeasonDto> = emptyList(),
     /** Only the episodes the PC has a file for, in season/episode order. */
-    val episodes: List<EpisodeDto> = emptyList()
+    val episodes: List<EpisodeDto> = emptyList(),
+    val originalTitle: String? = null,
+    val firstAirDate: String? = null,
+    val status: String? = null,
+    val certification: String? = null,
+    val tmdbId: Long? = null,
+    val imdbId: String? = null,
+    val cast: List<CreditDto> = emptyList()
 )
 
 /** `GET /api/v1/catalog`: the whole shared library in one document (a few thousand titles stay well under a few MB). */

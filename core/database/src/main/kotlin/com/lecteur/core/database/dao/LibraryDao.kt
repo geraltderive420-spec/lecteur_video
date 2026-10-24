@@ -106,6 +106,7 @@ interface LibraryDao {
         LEFT JOIN series s ON s.id = e.seriesId
         WHERE w.isCompleted = 0 AND w.durationMs > 0
           AND w.positionMs > w.durationMs * 0.02 AND w.positionMs < w.durationMs * 0.90
+          AND f.fingerprint NOT LIKE 'shared:%'
         ORDER BY w.lastWatchedAt DESC
         LIMIT :limit
         """

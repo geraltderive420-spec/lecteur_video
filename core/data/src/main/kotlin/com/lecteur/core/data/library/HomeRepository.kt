@@ -39,7 +39,9 @@ data class ContinueItem(
     val imagePath: String?,
     val progress: Float,
     val remainingMinutes: Int,
-    val isAvailable: Boolean
+    val isAvailable: Boolean,
+    /** For rows that mix this library with a PC's: the most recent first. */
+    val lastWatchedAt: Long = 0
 )
 
 data class NextUpItem(
@@ -144,6 +146,7 @@ internal fun ContinueRow.toItem(): ContinueItem {
         imagePath = stillPath ?: backdropPath ?: posterPath,
         progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
         remainingMinutes = ((durationMs - positionMs).coerceAtLeast(0) / 60_000L).toInt(),
-        isAvailable = isAvailable
+        isAvailable = isAvailable,
+        lastWatchedAt = lastWatchedAt
     )
 }

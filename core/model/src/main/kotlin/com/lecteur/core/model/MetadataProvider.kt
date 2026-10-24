@@ -133,6 +133,8 @@ object ImageUrls {
     fun url(path: String?, size: String): String? = when {
         path.isNullOrBlank() -> null
         isLocal(path) -> path
+        // A complete address: artwork of a PC's shared library, served by the PC
+        path.startsWith("http://") || path.startsWith("https://") -> path
         else -> BASE + size + (if (path.startsWith("/")) path else "/$path")
     }
 

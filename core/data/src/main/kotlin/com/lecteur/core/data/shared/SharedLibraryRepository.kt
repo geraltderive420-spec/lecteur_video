@@ -108,6 +108,28 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
         }
     }
 
+    /** Every paired PC (the TV mixes their libraries with its own). */
+    fun refreshAll() = _servers.value.forEach { refresh(it.serverId) }
+
+    /** A file of a PC's catalog, by its id on that PC. */
+    fun file(serverId: String, fileId: Long): FileDto? = catalog(serverId)?.let { c ->
+        c.movies.firstNotNullOfOrNull { m -> m.files.firstOrNull { it.id == fileId } }
+            ?: c.series.firstNotNullOfOrNull { s -> s.episodes.firstNotNullOfOrNull { e -> e.files.firstOrNull { it.id == fileId } } }
+    }
+
+    /** Marks files watched (at their end) or not watched (from the start) on the PC. */
+    fun setWatched(serverId: String, files: List<FileDto>, watched: Boolean) {
+        val server = server(serverId) ?: return
+        scope.launch {
+            files.forEach { f ->
+                val duration = f.durationMs ?: f.watch?.durationMs ?: 0
+                val report = WatchReport(f.id, positionMs = if (watched) duration else 0, durationMs = duration, completed = watched)
+                runCatching { client(server).report(report) }
+                updateCachedWatch(serverId, f.id, report)
+            }
+        }
+    }
+
     fun catalog(serverId: String): Catalog? = when (val s = _catalogs.value[serverId]) {
         is CatalogState.Loaded -> s.catalog
         is CatalogState.Failed -> s.previous
