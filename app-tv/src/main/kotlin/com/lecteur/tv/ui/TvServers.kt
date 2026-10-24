@@ -89,7 +89,7 @@ fun TvServersScreen(onPaired: () -> Unit, viewModel: SharedServersViewModel = hi
         }
         items(ui.nearby, key = { it.serviceName }) { server ->
             Button(onClick = { viewModel.startPairing(server) }) {
-                Icon(Icons.Rounded.Computer, null, modifier = Modifier.size(20.dp))
+                Icon(Icons.Rounded.Computer, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Associer « ${server.name} »")
             }

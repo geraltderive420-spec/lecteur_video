@@ -309,7 +309,7 @@ private fun Header(
 @Composable
 private fun Action(label: String, icon: ImageVector, primary: Boolean = false, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-        Icon(icon, null, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
         Text(label)
     }
