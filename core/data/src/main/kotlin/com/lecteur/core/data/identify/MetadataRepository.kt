@@ -80,6 +80,7 @@ class MetadataRepository @Inject constructor(
         batchSize: Int = 100,
         onProgress: (done: Int) -> Unit = {}
     ): IdentifyResult {
+        placeNewAbsoluteEpisodes()
         if (!provider.isConfigured) return IdentifyResult(notConfigured = true)
 
         var result = IdentifyResult()
@@ -447,15 +448,8 @@ class MetadataRepository @Inject constructor(
     private suspend fun relinkProvisionalEpisodes(seriesId: Long, meta: SeriesMetadata, episodesPerSeason: Map<Int, Int>) {
         val airDates = meta.seasons.flatMap { season -> season.episodes.filter { it.airDate != null }.map { it.airDate!! to (season.seasonNumber to it.episodeNumber) } }.toMap()
 
-        // Some shows (One Piece) are numbered across the whole run inside TMDB's own seasons (season 22 = episodes 1089-1155):
-        // a number found in exactly one season points straight at it
-        val seasonsByNumber = meta.seasons.filter { it.seasonNumber > 0 }
-            .flatMap { season -> season.episodes.map { it.episodeNumber to season.seasonNumber } }
-            .groupBy({ it.first }, { it.second })
-            .filterValues { it.size == 1 }
-            .mapValues { it.value.single() }
-        fun locate(absolute: Int): Pair<Int, Int>? =
-            seasonsByNumber[absolute]?.let { it to absolute } ?: EpisodeNumbering.fromAbsolute(absolute, episodesPerSeason)
+        val numbersBySeason = meta.seasons.associate { season -> season.seasonNumber to season.episodes.map { it.episodeNumber } }
+        fun locate(absolute: Int): Pair<Int, Int>? = EpisodeNumbering.placeAbsolute(absolute, numbersBySeason, episodesPerSeason)
 
         for (episode in episodeDao.getEpisodesForSeries(seriesId)) {
             val destination: Pair<Int, Int>? = when {
@@ -467,16 +461,41 @@ class MetadataRepository @Inject constructor(
                 episode.seasonNumber == 1 && episode.episodeNumber > (episodesPerSeason[1] ?: Int.MAX_VALUE) -> locate(episode.episodeNumber)
                 else -> null
             }
-            if (destination == null || destination == (episode.seasonNumber to episode.episodeNumber)) continue
-
-            val files = mediaFileDao.getMediaFilesForEpisode(episode.id)
-            if (files.isEmpty()) continue
-            val real = episodeDao.getEpisode(seriesId, destination.first, destination.second) ?: continue
-            if (real.id == episode.id) continue
-
-            files.forEach { mediaFileDao.setEpisode(it.id, real.id) }
-            episodeDao.deleteEpisode(episode.id)
+            if (destination != null) moveEpisode(episode, destination)
         }
+    }
+
+    /**
+     * An episode scanned after its show was identified ("One Piece E1156", aired since the last TMDB sync) is filed in
+     * season 1 by the scan, and identification never visits the show again: placed here from the seasons already known.
+     */
+    private suspend fun placeNewAbsoluteEpisodes() = writeLock.withLock {
+        for ((seriesId, episodes) in episodeDao.getUnplacedAbsoluteEpisodes().groupBy { it.seriesId }) {
+            val known = episodeDao.getEpisodesForSeries(seriesId).filter { it.title != null && it.seasonNumber > 0 }
+            if (known.isEmpty()) continue
+            val numbersBySeason = known.groupBy({ it.seasonNumber }, { it.episodeNumber })
+            val sizes = numbersBySeason.mapValues { it.value.size }
+            for (episode in episodes) {
+                EpisodeNumbering.placeAbsolute(episode.absoluteNumber!!, numbersBySeason, sizes)?.let { moveEpisode(episode, it) }
+            }
+        }
+    }
+
+    /** Moves a provisional episode's files onto the real episode, or the row itself when TMDB does not list that episode yet. */
+    private suspend fun moveEpisode(episode: EpisodeEntity, destination: Pair<Int, Int>) {
+        if (destination == (episode.seasonNumber to episode.episodeNumber)) return
+        val files = mediaFileDao.getMediaFilesForEpisode(episode.id)
+        if (files.isEmpty()) return
+        val real = episodeDao.getEpisode(episode.seriesId, destination.first, destination.second)
+        if (real == null) {
+            val seasonId = seasonDao.getSeasonByNumber(episode.seriesId, destination.first)?.id ?: return
+            episodeDao.insertEpisode(episode.copy(seasonId = seasonId, seasonNumber = destination.first, episodeNumber = destination.second))
+            return
+        }
+        if (real.id == episode.id) return
+
+        files.forEach { mediaFileDao.setEpisode(it.id, real.id) }
+        episodeDao.deleteEpisode(episode.id)
     }
 
     // endregion

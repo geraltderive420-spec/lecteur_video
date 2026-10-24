@@ -294,6 +294,26 @@ class EpisodeNumberingTest {
     }
 
     @Test
+    fun aShowNumberedAcrossItsRunKeepsTheNumberInTheSeasonThatReachesIt() {
+        // One Piece on TMDB: season 22 = episodes 1089-1155
+        val numbers = mapOf(1 to (1..61).toList(), 2 to (62..77).toList(), 22 to (1089..1155).toList())
+        val sizes = numbers.mapValues { it.value.size }
+        assertThat(EpisodeNumbering.placeAbsolute(5, numbers, sizes)).isEqualTo(1 to 5)
+        assertThat(EpisodeNumbering.placeAbsolute(70, numbers, sizes)).isEqualTo(2 to 70)
+        assertThat(EpisodeNumbering.placeAbsolute(1155, numbers, sizes)).isEqualTo(22 to 1155)
+        // Aired after TMDB's list was fetched: the last season
+        assertThat(EpisodeNumbering.placeAbsolute(1156, numbers, sizes)).isEqualTo(22 to 1156)
+    }
+
+    @Test
+    fun aShowNumberedPerSeasonWalksThroughTheSizes() {
+        val numbers = mapOf(1 to (1..10).toList(), 2 to (1..12).toList())
+        val sizes = numbers.mapValues { it.value.size }
+        assertThat(EpisodeNumbering.placeAbsolute(11, numbers, sizes)).isEqualTo(2 to 1)
+        assertThat(EpisodeNumbering.placeAbsolute(23, numbers, sizes)).isNull()
+    }
+
+    @Test
     fun dateEncodedEpisodesAreRecognisedAndDecoded() {
         assertThat(EpisodeNumbering.isDateBased(2024, 315)).isTrue()
         assertThat(EpisodeNumbering.dateOf(2024, 315)).isEqualTo("2024-03-15")

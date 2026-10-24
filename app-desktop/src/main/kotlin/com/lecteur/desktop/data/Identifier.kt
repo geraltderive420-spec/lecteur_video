@@ -79,6 +79,7 @@ class Identifier(private val store: LibraryStore, private val tmdb: TmdbProvider
     private val db get() = store.db
 
     suspend fun identifyPending(onProgress: (Int) -> Unit = {}): IdentifyResult {
+        placeNewAbsoluteEpisodes()
         if (!provider.isConfigured) return IdentifyResult(notConfigured = true)
         var result = IdentifyResult()
         val retryBefore = System.currentTimeMillis() - RETRY_AFTER_MS
@@ -356,9 +357,8 @@ class Identifier(private val store: LibraryStore, private val tmdb: TmdbProvider
 
         // Absolute (anime) and date numbering found during the scan move onto the real episode
         val airDates = meta.seasons.flatMap { s -> s.episodes.filter { it.airDate != null }.map { it.airDate!! to (s.seasonNumber to it.episodeNumber) } }.toMap()
-        val single = meta.seasons.filter { it.seasonNumber > 0 }.flatMap { s -> s.episodes.map { it.episodeNumber to s.seasonNumber } }
-            .groupBy({ it.first }, { it.second }).filterValues { it.size == 1 }.mapValues { it.value.single() }
-        fun locate(absolute: Int): Pair<Int, Int>? = single[absolute]?.let { it to absolute } ?: EpisodeNumbering.fromAbsolute(absolute, perSeason)
+        val numbersBySeason = meta.seasons.associate { s -> s.seasonNumber to s.episodes.map { it.episodeNumber } }
+        fun locate(absolute: Int): Pair<Int, Int>? = EpisodeNumbering.placeAbsolute(absolute, numbersBySeason, perSeason)
 
         for (episode in store.episodes(seriesId)) {
             val destination = when {
@@ -367,20 +367,52 @@ class Identifier(private val store: LibraryStore, private val tmdb: TmdbProvider
                 episode.seasonNumber == 1 && episode.episodeNumber > (perSeason[1] ?: Int.MAX_VALUE) -> locate(episode.episodeNumber)
                 else -> null
             } ?: continue
-            if (destination == (episode.seasonNumber to episode.episodeNumber)) continue
-            db.write {
-                val real = long("SELECT id FROM episodes WHERE series_id = ? AND season_number = ? AND episode_number = ?", seriesId, destination.first, destination.second)
-                if (real != null && real != episode.id) {
-                    exec("UPDATE media_files SET episode_id = ? WHERE episode_id = ?", real, episode.id)
-                    exec("DELETE FROM episodes WHERE id = ?", episode.id)
-                }
-            }
+            moveEpisode(seriesId, episode.id, episode.seasonNumber to episode.episodeNumber, destination)
         }
         db.write {
             exec(
                 "DELETE FROM seasons WHERE series_id = ? AND id NOT IN (SELECT season_id FROM episodes) AND number NOT IN (${meta.seasons.joinToString { it.seasonNumber.toString() }.ifEmpty { "-1" }})",
                 seriesId
             )
+        }
+    }
+
+    /**
+     * An episode scanned after its show was identified ("One Piece E1156", aired since the last TMDB sync) is filed in
+     * season 1 by the scan, and identification never visits the show again: placed here from the seasons already known.
+     */
+    private fun placeNewAbsoluteEpisodes() {
+        val seriesIds = db.read {
+            query(
+                """SELECT DISTINCT e.series_id FROM episodes e JOIN series s ON s.id = e.series_id
+                   WHERE s.tmdb_id IS NOT NULL AND e.season_number = 1 AND e.absolute_number IS NOT NULL AND e.title IS NULL"""
+            ) { it.long("series_id") }
+        }
+        for (seriesId in seriesIds) {
+            val episodes = store.episodes(seriesId)
+            val known = episodes.filter { it.title != null && it.seasonNumber > 0 }
+            if (known.isEmpty()) continue
+            val numbersBySeason = known.groupBy({ it.seasonNumber }, { it.episodeNumber })
+            val sizes = numbersBySeason.mapValues { it.value.size }
+            for (episode in episodes.filter { it.seasonNumber == 1 && it.absoluteNumber != null && it.title == null }) {
+                val destination = EpisodeNumbering.placeAbsolute(episode.absoluteNumber!!, numbersBySeason, sizes) ?: continue
+                moveEpisode(seriesId, episode.id, episode.seasonNumber to episode.episodeNumber, destination)
+            }
+        }
+    }
+
+    /** Moves a provisional episode's files onto the real episode, or the row itself when TMDB does not list that episode yet. */
+    private fun moveEpisode(seriesId: Long, episodeId: Long, from: Pair<Int, Int>, destination: Pair<Int, Int>) {
+        if (destination == from) return
+        db.write {
+            val real = long("SELECT id FROM episodes WHERE series_id = ? AND season_number = ? AND episode_number = ?", seriesId, destination.first, destination.second)
+            if (real == null) {
+                val seasonId = long("SELECT id FROM seasons WHERE series_id = ? AND number = ?", seriesId, destination.first) ?: return@write
+                exec("UPDATE episodes SET season_id = ?, season_number = ?, episode_number = ? WHERE id = ?", seasonId, destination.first, destination.second, episodeId)
+            } else if (real != episodeId) {
+                exec("UPDATE media_files SET episode_id = ? WHERE episode_id = ?", real, episodeId)
+                exec("DELETE FROM episodes WHERE id = ?", episodeId)
+            }
         }
     }
 

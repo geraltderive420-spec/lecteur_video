@@ -475,6 +475,42 @@ class MetadataRepositoryTest {
         assertThat(db.mediaFileDao().getMediaFileById(fileId)?.episodeId).isEqualTo(provisional)
     }
 
+    /** One Piece as TMDB numbers it: the absolute number runs on inside every season. */
+    private fun onePieceMeta() = seriesMeta(37854, "One Piece", mapOf(1 to 61, 22 to 67), year = 1999).let { meta ->
+        meta.copy(seasons = meta.seasons.map { season ->
+            if (season.seasonNumber != 22) season else season.copy(episodes = season.episodes.map { it.copy(episodeNumber = it.episodeNumber + 1088) })
+        })
+    }
+
+    @Test
+    fun anEpisodeNewerThanTmdbsListGoesToTheLastSeasonOfAShowNumberedAcrossItsRun() = runTest {
+        val series = addSeries("One Piece", alias = "one piece")
+        val (_, fileId) = addEpisodeWithFile(series, 1, 1156, absolute = 1156)
+        provider.series[37854] = onePieceMeta()
+
+        repo.applyManual(MediaKind.SERIES, series, 37854, now)
+
+        val episode = db.episodeDao().getEpisodeById(db.mediaFileDao().getMediaFileById(fileId)!!.episodeId!!)!!
+        assertThat(episode.seasonNumber to episode.episodeNumber).isEqualTo(22 to 1156)
+        assertThat(episode.seasonId).isEqualTo(db.seasonDao().getSeasonByNumber(series, 22)!!.id)
+    }
+
+    @Test
+    fun anEpisodeScannedAfterTheShowWasIdentifiedIsPlacedWithoutGoingOnline() = runTest {
+        val series = addSeries("One Piece", alias = "one piece")
+        addEpisodeWithFile(series, 22, 1150, file = "op1150")
+        provider.series[37854] = onePieceMeta()
+        repo.applyManual(MediaKind.SERIES, series, 37854, now)
+
+        // The next scan finds "One Piece E1156": filed in season 1, and the show is never looked up again
+        val (_, fileId) = addEpisodeWithFile(series, 1, 1156, absolute = 1156)
+        provider.series.clear()
+        repo.identifyPending(now)
+
+        val episode = db.episodeDao().getEpisodeById(db.mediaFileDao().getMediaFileById(fileId)!!.episodeId!!)!!
+        assertThat(episode.seasonNumber to episode.episodeNumber).isEqualTo(22 to 1156)
+    }
+
     @Test
     fun aRealSeasonOneEpisodeIsNotMistakenForAnAbsoluteNumber() = runTest {
         val series = addSeries("Show", alias = "show")

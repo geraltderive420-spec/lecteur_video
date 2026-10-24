@@ -143,6 +143,15 @@ interface EpisodeDao {
     @Query("DELETE FROM episodes WHERE id = :id")
     suspend fun deleteEpisode(id: Long)
 
+    /** Episodes of identified shows still where the scan put them: an absolute number in season 1 that TMDB did not fill in. */
+    @Query(
+        """
+        SELECT e.* FROM episodes e JOIN series s ON s.id = e.seriesId
+        WHERE s.tmdbId IS NOT NULL AND e.seasonNumber = 1 AND e.absoluteNumber IS NOT NULL AND e.title IS NULL
+        """
+    )
+    suspend fun getUnplacedAbsoluteEpisodes(): List<EpisodeEntity>
+
     /** Episodes known from TMDB only (no file of ours): safe to rebuild when the series is matched again. */
     @Query("SELECT * FROM episodes WHERE seriesId = :seriesId AND id NOT IN (SELECT episodeId FROM media_files WHERE episodeId IS NOT NULL)")
     suspend fun getEpisodesWithoutFiles(seriesId: Long): List<EpisodeEntity>

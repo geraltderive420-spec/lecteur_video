@@ -20,6 +20,20 @@ object EpisodeNumbering {
     }
 
     /**
+     * Where a number parsed as absolute belongs, given the episode numbers TMDB lists per season.
+     * Some shows (One Piece) keep the absolute number inside TMDB's seasons (season 22 = episodes 1089-1155): the number
+     * then stays as it is, in the season whose range reaches it, and an episode newer than TMDB's list goes to the last season.
+     * Otherwise it is walked through the season sizes ([fromAbsolute]).
+     */
+    fun placeAbsolute(absolute: Int, numbersBySeason: Map<Int, Collection<Int>>, episodeCountBySeason: Map<Int, Int>): Pair<Int, Int>? {
+        val seasons = numbersBySeason.filter { (season, numbers) -> season > 0 && numbers.isNotEmpty() }.toSortedMap()
+        val runsAcross = seasons.any { (season, numbers) -> season > 1 && numbers.min() > 1 }
+        if (!runsAcross) return fromAbsolute(absolute, episodeCountBySeason)
+        val season = seasons.entries.lastOrNull { it.value.min() <= absolute }?.key ?: return null
+        return season to absolute
+    }
+
+    /**
      * The filename parser encodes a date episode ("Show 2024.03.15") as season = year and episode = month * 100 + day.
      * Real seasons never reach 1900, so the pair is unambiguous.
      */
