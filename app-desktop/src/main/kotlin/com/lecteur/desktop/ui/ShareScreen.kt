@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lecteur.desktop.background.Autostart
 import com.lecteur.desktop.data.SharedDevice
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -67,9 +68,26 @@ fun ShareScreen() {
                             )
                         }
                         Switch(settings.shareEnabled, { on ->
-                            a.services.settings.update { it.copy(shareEnabled = on) }
+                            // A server is useful only if it is there when the TV is: the first time, it starts with Windows
+                            val offer = on && !settings.autostartOffered && Autostart.available
+                            a.services.settings.update { it.copy(shareEnabled = on, autostartOffered = it.autostartOffered || offer) }
                             if (on) a.services.share.start() else a.services.share.stop()
+                            if (offer && !a.startWithWindows) {
+                                a.changeStartWithWindows(true)
+                                if (a.startWithWindows) a.say("Le partage démarrera aussi avec Windows, en arrière-plan")
+                            }
                         })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Démarrer avec Windows", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (Autostart.available) "Comme Plex ou Jellyfin : la bibliothèque reste disponible sans ouvrir l'application (icône près de l'horloge)"
+                                else "Disponible dans la version installée",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(a.startWithWindows, a::changeStartWithWindows, enabled = Autostart.available)
                     }
                     if (ui.running) {
                         Text(

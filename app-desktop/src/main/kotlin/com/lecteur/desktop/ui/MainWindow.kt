@@ -75,8 +75,13 @@ fun ApplicationScope.LecteurApp(app: AppController, icon: Painter?) {
     val session by app.services.playback.ui.collectAsState()
     val windowState = rememberWindowState(size = DpSize(1440.dp, 900.dp), placement = WindowPlacement.Maximized)
 
+    AppTray(app, icon)
+    if (session.active) PlayerWindow(app, icon)
+    // Out of the composition while closed: a server in the notification area does not keep the library's UI in memory
+    if (!app.mainWindowOpen) return
+
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = { if (settings.closeToTray) app.mainWindowOpen = false else exitApplication() },
         state = windowState,
         title = "Lecteur Média",
         icon = icon,
@@ -91,6 +96,14 @@ fun ApplicationScope.LecteurApp(app: AppController, icon: Painter?) {
             }
         }
     ) {
+        // Opened again from the tray or a second launch while already open: to the front
+        LaunchedEffect(app.showRequests) {
+            if (app.showRequests == 0) return@LaunchedEffect
+            if (windowState.isMinimized) windowState.isMinimized = false
+            window.toFront()
+            window.requestFocus()
+        }
+
         // Mouse "back" button and video files dropped on the window
         DisposableEffect(window) {
             val toolkit = java.awt.Toolkit.getDefaultToolkit()
@@ -132,8 +145,6 @@ fun ApplicationScope.LecteurApp(app: AppController, icon: Painter?) {
             }
         }
     }
-
-    if (session.active) PlayerWindow(app, icon)
 }
 
 @Composable

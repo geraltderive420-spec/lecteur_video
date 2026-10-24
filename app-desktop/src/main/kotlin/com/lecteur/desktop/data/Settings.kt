@@ -129,7 +129,13 @@ data class AppSettings(
     /** Stable identity of this PC as a library server, so devices recognise it after an address change. */
     val serverId: String = LibrarySignature.newId(),
     /** Devices allowed to read the shared library. Removing one revokes it at once. */
-    val sharedDevices: List<SharedDevice> = emptyList()
+    val sharedDevices: List<SharedDevice> = emptyList(),
+    /** Closing the window leaves the app in the notification area, still serving and receiving (Plex style). */
+    val closeToTray: Boolean = true,
+    /** The "still running in the background" balloon, shown the first time the window is closed. */
+    val trayHintShown: Boolean = false,
+    /** "Start with Windows" is turned on once, the first time sharing is; after that it is the user's choice. */
+    val autostartOffered: Boolean = false
 ) {
     fun section(section: LibrarySection) = if (section == LibrarySection.MOVIES) movies else series
 

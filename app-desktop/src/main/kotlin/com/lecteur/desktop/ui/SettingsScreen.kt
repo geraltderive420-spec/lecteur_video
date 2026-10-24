@@ -48,6 +48,7 @@ import com.lecteur.core.model.HomeLayout
 import com.lecteur.core.model.ThemeMode
 import com.lecteur.core.player.tracks.SubtitleMode
 import com.lecteur.desktop.BuildConfig
+import com.lecteur.desktop.background.Autostart
 import com.lecteur.desktop.data.AppDirs
 import com.lecteur.desktop.data.LibrarySnapshot
 import com.lecteur.desktop.data.ResumeBehavior
@@ -135,6 +136,11 @@ fun SettingsScreen() {
                     if (v) a.services.receiver.start() else a.services.receiver.stop()
                 }
                 OutlinedButton(onClick = { a.root(Screen.Cast) }) { Text("Code d'appairage et télécommande") }
+            }
+
+            Section("Arrière-plan") {
+                Toggle("Démarrer avec Windows", if (Autostart.available) "Dans la zone de notification, sans fenêtre : partage et réception prêts dès l'ouverture de session" else "Disponible dans la version installée", a.startWithWindows) { v -> a.changeStartWithWindows(v) }
+                Toggle("Rester actif à la fermeture de la fenêtre", "L'application continue près de l'horloge ; clic droit sur l'icône → Quitter pour l'arrêter", s.closeToTray) { v -> update { it.copy(closeToTray = v) } }
             }
 
             Section("Stockage") {

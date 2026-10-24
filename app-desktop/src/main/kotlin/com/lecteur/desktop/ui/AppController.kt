@@ -53,6 +53,26 @@ class AppController(val services: AppServices) {
     val player = com.lecteur.desktop.ui.player.PlayerWindowState()
     var notice by mutableStateOf<String?>(null)
 
+    /** The library window; closed, the app keeps serving from the notification area (see AppTray). */
+    var mainWindowOpen by mutableStateOf(true)
+
+    /** Bumped to bring an already open window to the front. */
+    var showRequests by mutableStateOf(0)
+        private set
+
+    /** Mirrors the Run key of the registry; read once, written from the tray and the settings. */
+    var startWithWindows by mutableStateOf(com.lecteur.desktop.background.Autostart.isEnabled())
+        private set
+
+    fun showMainWindow() {
+        mainWindowOpen = true
+        showRequests++
+    }
+
+    fun changeStartWithWindows(enabled: Boolean) {
+        startWithWindows = com.lecteur.desktop.background.Autostart.set(enabled)
+    }
+
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     fun go(screen: Screen) {
