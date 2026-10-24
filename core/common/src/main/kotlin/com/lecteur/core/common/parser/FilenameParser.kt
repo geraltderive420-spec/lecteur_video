@@ -207,6 +207,8 @@ object FilenameParser {
                 val ep = standMatch.groupValues[1].toInt()
                 detectedEpisodes.add(ep)
                 detectedSeason = parentSeason ?: 1
+                // "One Piece E1115": no season anywhere, so the number may run across the whole show
+                if (parentSeason == null) absoluteEpisode = ep
                 titlePart = normalized.substring(0, standMatch.range.first)
             }
         }

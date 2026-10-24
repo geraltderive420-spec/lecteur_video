@@ -336,7 +336,7 @@ class LibraryScannerTest {
     }
 
     @Test
-    fun aVanishedFileIsMarkedUnavailableNeverDeleted() = runTest {
+    fun aVanishedFileIsRemovedWithItsMovie() = runTest {
         val id = folder(MediaCategory.MOVIES)
         walker.put("", "Dune.2021.mkv", uri = "content://disk/dune")
         walker.put("", "Alien.1979.mkv", uri = "content://disk/alien")
@@ -347,27 +347,8 @@ class LibraryScannerTest {
 
         assertThat(summary.markedUnavailable).isEqualTo(1)
         val files = db.mediaFileDao().getMediaFilesByFolder(id)
-        assertThat(files).hasSize(2)
-        assertThat(files.first { it.fileName.startsWith("Alien") }.isAvailable).isFalse()
-        assertThat(files.first { it.fileName.startsWith("Dune") }.isAvailable).isTrue()
-        assertThat(db.movieDao().getAllMovies()).hasSize(2)
-    }
-
-    @Test
-    fun aFileThatComesBackIsAvailableAgainWithItsHistory() = runTest {
-        val id = folder(MediaCategory.MOVIES)
-        walker.put("", "Dune.2021.mkv", uri = "content://disk/dune")
-        scanner.scan(id)
-        val fileId = db.mediaFileDao().getMediaFilesByFolder(id).single().id
-        walker.remove("content://disk/dune")
-        scanner.scan(id)
-        assertThat(db.mediaFileDao().getMediaFileById(fileId)?.isAvailable).isFalse()
-
-        walker.put("", "Dune.2021.mkv", uri = "content://disk/dune")
-        val summary = scanner.scan(id)
-
-        assertThat(summary.unchanged).isEqualTo(1)
-        assertThat(db.mediaFileDao().getMediaFileById(fileId)?.isAvailable).isTrue()
+        assertThat(files.map { it.fileName }).containsExactly("Dune.2021.mkv")
+        assertThat(db.movieDao().getAllMovies()).hasSize(1)
     }
 
     @Test

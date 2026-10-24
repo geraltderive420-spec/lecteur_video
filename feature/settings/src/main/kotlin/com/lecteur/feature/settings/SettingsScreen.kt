@@ -171,7 +171,7 @@ fun SettingsScreen(
             SettingsSection("À propos") {
                 val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?" }
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Lecteur Média $version", style = MaterialTheme.typography.titleMedium)
+                    Text("PlexIn $version", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Bibliothèque de films et de séries locale, sans serveur ni compte. Vos fichiers ne sont jamais modifiés.",
                         style = MaterialTheme.typography.bodyMedium

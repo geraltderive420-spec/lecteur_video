@@ -103,9 +103,11 @@ class DetailRepository @Inject constructor(
         if (relation == null) return@combine null
         val episodes = episodeItems(rows)
         val episodesBySeason = episodes.groupBy { it.seasonNumber }
-        val seasons = relation.seasons.sortedWith(compareBy({ it.seasonNumber == 0 }, { it.seasonNumber })).map { season ->
+        val allSeasons = relation.seasons.sortedWith(compareBy({ it.seasonNumber == 0 }, { it.seasonNumber })).map { season ->
             SeasonDetail(season.seasonNumber, season.name, season.posterPath, episodesBySeason[season.seasonNumber].orEmpty())
         }
+        // TMDB lists every season of the show (One Piece: 20+): only those with at least one episode we hold a file for
+        val seasons = allSeasons.filter { season -> season.episodes.any { it.versions.isNotEmpty() } }.ifEmpty { allSeasons }
 
         val summaries = NextUpResolver.summarize(
             rows.filter { it.mediaFileId != null }.map { it.toFileState(seriesId) }

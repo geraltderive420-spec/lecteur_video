@@ -60,7 +60,7 @@ data class ScanSummary(
 
 /**
  * Brings the database in line with one watched folder: new files are fingerprinted, inspected and filed under a movie or an
- * episode; moved or renamed files keep their row (and their progress); vanished files are marked unavailable, never deleted.
+ * episode; moved or renamed files keep their row (and their progress); files that vanished from a fully listed folder are removed (with their series/movie once empty); an unreachable folder only marks its files unavailable.
  * Files are inspected a few at a time, but every database write happens on this coroutine, one file after the other,
  * so the library fills up as the scan goes and two files of the same show cannot race to create the series.
  */
@@ -125,7 +125,11 @@ class LibraryScanner @Inject constructor(
         // With part of the tree unreadable, an absent file may simply be in the part we could not see
         if (walk.complete) {
             val vanished = moves.unclaimed().map { it.id }
-            vanished.chunked(SQL_CHUNK).forEach { mediaFileDao.setAvailability(it, false) }
+            // Deleted from the storage: the entry leaves the library (a drive that is merely unplugged never gets here)
+            writeLock.withLock {
+                vanished.chunked(SQL_CHUNK).forEach { mediaFileDao.deleteMediaFiles(it) }
+                if (vanished.isNotEmpty()) linker.removeOrphans()
+            }
             gone = vanished.size
         }
 

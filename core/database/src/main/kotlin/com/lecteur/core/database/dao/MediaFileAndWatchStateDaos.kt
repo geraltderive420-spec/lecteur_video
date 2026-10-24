@@ -48,6 +48,9 @@ interface MediaFileDao {
     @Query("DELETE FROM media_files WHERE id = :id")
     suspend fun deleteMediaFile(id: Long)
 
+    @Query("DELETE FROM media_files WHERE id IN (:ids)")
+    suspend fun deleteMediaFiles(ids: List<Long>)
+
     @Query("SELECT * FROM media_files WHERE id = :id")
     suspend fun getMediaFileById(id: Long): MediaFileEntity?
 

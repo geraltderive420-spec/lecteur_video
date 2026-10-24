@@ -1,5 +1,6 @@
 package com.lecteur.audio.navigation
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -43,7 +44,9 @@ import com.lecteur.core.model.LibrarySection
 import com.lecteur.core.model.MediaKind
 import com.lecteur.core.model.PlayPlan
 import com.lecteur.feature.cast.ui.CastSheet
+import com.lecteur.feature.cast.ui.MiniRemote
 import com.lecteur.feature.cast.ui.RemoteScreen
+import com.lecteur.feature.cast.ui.RemoteViewModel
 import com.lecteur.feature.details.MovieDetailScreen
 import com.lecteur.feature.details.SeriesDetailScreen
 import com.lecteur.feature.home.HomeScreen
@@ -92,11 +95,23 @@ fun LecteurRoot(startup: Startup, onPlay: (PlayPlan) -> Unit, onWelcomeDone: () 
         if (startup == Startup.WELCOME) nav.navigate(Screen.Welcome.route) { launchSingleTop = true }
     }
 
+    // The player's cast button asks for the remote from another activity
+    val remoteSession = hiltViewModel<RemoteViewModel>().session
+    LaunchedEffect(Unit) {
+        remoteSession.openRemoteRequests.collect { nav.navigate(Screen.Remote.route) { launchSingleTop = true } }
+    }
+    val onRemote = entry?.destination?.route == Screen.Remote.route
+
     Row(Modifier.fillMaxSize()) {
         if (showTabs && wide) SideTabs(nav, entry)
         Scaffold(
             modifier = Modifier.weight(1f),
-            bottomBar = { if (showTabs && !wide) BottomTabs(nav, entry) }
+            bottomBar = {
+                Column {
+                    if (!onRemote) MiniRemote(onOpen = { nav.navigate(Screen.Remote.route) { launchSingleTop = true } })
+                    if (showTabs && !wide) BottomTabs(nav, entry)
+                }
+            }
         ) { padding ->
             Destinations(nav, onPlay, onWelcomeDone, Modifier.padding(padding))
         }

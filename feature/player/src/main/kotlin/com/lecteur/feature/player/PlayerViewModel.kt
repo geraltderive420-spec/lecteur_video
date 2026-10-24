@@ -90,7 +90,9 @@ data class PlayerUiState(
     val displayHdrTypes: Set<HdrType> = emptySet(),
     val queue: QueueUi? = null,
     /** The user dismissed the "next episode" card: the file ends without moving on. */
-    val upNextCancelled: Boolean = false
+    val upNextCancelled: Boolean = false,
+    /** Library file behind the current playback, null for a bare URI: only a library file can be sent to a TV. */
+    val castFileId: Long? = null
 )
 
 @UnstableApi
@@ -209,7 +211,8 @@ class PlayerViewModel @Inject constructor(
             it.copy(
                 phase = if (prompt != null && !resumeNow) PlayerPhase.ResumePrompt(prompt) else PlayerPhase.Playing,
                 title = prepared.request.title,
-                displayMode = prepared.displayMode
+                displayMode = prepared.displayMode,
+                castFileId = prepared.request.mediaFileId.takeIf { id -> id > 0 }
             )
         }
         loadChapters(uri, engine)

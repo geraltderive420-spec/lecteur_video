@@ -447,13 +447,24 @@ class MetadataRepository @Inject constructor(
     private suspend fun relinkProvisionalEpisodes(seriesId: Long, meta: SeriesMetadata, episodesPerSeason: Map<Int, Int>) {
         val airDates = meta.seasons.flatMap { season -> season.episodes.filter { it.airDate != null }.map { it.airDate!! to (season.seasonNumber to it.episodeNumber) } }.toMap()
 
+        // Some shows (One Piece) are numbered across the whole run inside TMDB's own seasons (season 22 = episodes 1089-1155):
+        // a number found in exactly one season points straight at it
+        val seasonsByNumber = meta.seasons.filter { it.seasonNumber > 0 }
+            .flatMap { season -> season.episodes.map { it.episodeNumber to season.seasonNumber } }
+            .groupBy({ it.first }, { it.second })
+            .filterValues { it.size == 1 }
+            .mapValues { it.value.single() }
+        fun locate(absolute: Int): Pair<Int, Int>? =
+            seasonsByNumber[absolute]?.let { it to absolute } ?: EpisodeNumbering.fromAbsolute(absolute, episodesPerSeason)
+
         for (episode in episodeDao.getEpisodesForSeries(seriesId)) {
             val destination: Pair<Int, Int>? = when {
                 EpisodeNumbering.isDateBased(episode.seasonNumber, episode.episodeNumber) ->
                     airDates[EpisodeNumbering.dateOf(episode.seasonNumber, episode.episodeNumber)]
                 // Parsed as absolute and filed in season 1 provisionally; a real season 1 number maps to itself
-                episode.absoluteNumber != null && episode.seasonNumber == 1 ->
-                    EpisodeNumbering.fromAbsolute(episode.absoluteNumber!!, episodesPerSeason)
+                episode.absoluteNumber != null && episode.seasonNumber == 1 -> locate(episode.absoluteNumber!!)
+                // Rows scanned before absolute numbers were kept: a season 1 number beyond season 1's size can only be absolute
+                episode.seasonNumber == 1 && episode.episodeNumber > (episodesPerSeason[1] ?: Int.MAX_VALUE) -> locate(episode.episodeNumber)
                 else -> null
             }
             if (destination == null || destination == (episode.seasonNumber to episode.episodeNumber)) continue

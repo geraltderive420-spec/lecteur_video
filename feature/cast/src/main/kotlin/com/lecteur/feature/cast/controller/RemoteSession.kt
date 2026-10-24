@@ -1,5 +1,6 @@
 package com.lecteur.feature.cast.controller
 
+import android.content.Context
 import android.os.Build
 import com.lecteur.core.common.cast.protocol.ControllerListener
 import com.lecteur.core.common.cast.protocol.Ended
@@ -31,12 +32,16 @@ import com.lecteur.core.player.tracks.SUBTITLE_OFF
 import com.lecteur.feature.cast.discovery.DiscoveredReceiver
 import com.lecteur.feature.cast.stream.ShareFailure
 import com.lecteur.feature.cast.stream.StreamHost
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +77,7 @@ data class RemoteUi(
  */
 @Singleton
 class RemoteSession @Inject constructor(
+    @ApplicationContext context: Context,
     private val streamHost: StreamHost,
     private val requestFactory: PlaybackRequestFactory,
     private val watchStateStore: WatchStateStore
@@ -87,6 +93,25 @@ class RemoteSession @Inject constructor(
 
     val isConnected: Boolean get() = _ui.value.connection is ConnectionState.Connected
 
+    private val remoteRequests = Channel<Unit>(Channel.CONFLATED)
+
+    /** Fires when something outside the main app (the player's cast button) wants the remote screen in front. */
+    val openRemoteRequests: Flow<Unit> = remoteRequests.receiveAsFlow()
+
+    fun requestRemote() {
+        remoteRequests.trySend(Unit)
+    }
+
+    private val pairings = context.getSharedPreferences("remote_pairings", Context.MODE_PRIVATE)
+
+    /** The code already accepted by this TV, so the user types it only once. */
+    fun savedCode(receiver: DiscoveredReceiver): String? = pairings.getString(receiver.deviceName, null)
+
+    fun isConnectedTo(receiver: DiscoveredReceiver): Boolean {
+        val c = _ui.value.connection
+        return c is ConnectionState.Connected && c.receiverName == receiver.deviceName
+    }
+
     /** Connects and performs the handshake. Returns true on success; on failure [ui] carries the reason. */
     suspend fun connect(receiver: DiscoveredReceiver, pairingCode: String): Boolean = withContext(Dispatchers.IO) {
         disconnect()
@@ -95,10 +120,12 @@ class RemoteSession @Inject constructor(
         try {
             val welcome = created.connect(receiver.host, receiver.port, pairingCode)
             if (!welcome.accepted) {
+                if (welcome.refusal == HelloRefusal.BAD_PAIRING_CODE) pairings.edit().remove(receiver.deviceName).apply()
                 _ui.value = RemoteUi(connection = ConnectionState.Failed(refusalMessage(welcome.refusal)))
                 return@withContext false
             }
             client = created
+            pairings.edit().putString(receiver.deviceName, pairingCode).apply()
             _ui.value = RemoteUi(connection = ConnectionState.Connected(welcome.deviceName.ifBlank { receiver.deviceName }))
             created.send(RequestState)
             true
@@ -144,20 +171,20 @@ class RemoteSession @Inject constructor(
         tracker = ResumeTracker(mediaFileId, watchStateStore, prepared.watchState)
         val start = if (fromStart) 0L else prepared.resumePromptMs ?: 0L
 
-        val sent = client?.send(
-            Open(
-                streamUrl = streamUrl,
-                title = request.title,
-                mediaFileId = mediaFileId,
-                startPositionMs = start,
-                playWhenReady = true,
-                audioIndex = request.savedAudioIndex,
-                subtitleIndex = request.savedSubtitleIndex,
-                audioDelayMs = request.audioDelayMs,
-                subtitleDelayMs = request.subtitleDelayMs,
-                subtitles = subtitles
-            )
-        ) == true
+        val open = Open(
+            streamUrl = streamUrl,
+            title = request.title,
+            mediaFileId = mediaFileId,
+            startPositionMs = start,
+            playWhenReady = true,
+            audioIndex = request.savedAudioIndex,
+            subtitleIndex = request.savedSubtitleIndex,
+            audioDelayMs = request.audioDelayMs,
+            subtitleDelayMs = request.subtitleDelayMs,
+            subtitles = subtitles
+        )
+        // Socket writes are forbidden on the main thread (the sheet's viewModelScope runs there).
+        val sent = withContext(Dispatchers.IO) { client?.send(open) == true }
         if (!sent) notice("La connexion avec la TV est perdue.")
     }
 
@@ -268,8 +295,11 @@ class RemoteSession @Inject constructor(
 
     // endregion
 
+    /** Commands come from the UI thread; the socket write must not run there. */
     private fun send(command: RemoteMessage) {
-        if (client?.send(command) != true) notice("La connexion avec la TV est perdue.")
+        scope.launch {
+            if (client?.send(command) != true) notice("La connexion avec la TV est perdue.")
+        }
     }
 
     private fun notice(text: String) = _ui.update { it.copy(notice = text) }

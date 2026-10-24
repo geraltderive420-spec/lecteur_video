@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":core:player"))
     implementation(project(":core:data"))
     implementation(project(":core:common"))
+    implementation(project(":feature:cast"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

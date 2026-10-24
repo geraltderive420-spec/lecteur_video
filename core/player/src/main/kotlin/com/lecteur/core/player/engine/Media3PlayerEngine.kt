@@ -373,8 +373,29 @@ class Media3PlayerEngine(
     private fun subtitleGroups(): List<Tracks.Group> = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
 
     /** First time tracks are known for the media (or a re-prepare with a new external subtitle). */
+    /**
+     * A video stream no decoder on this device can handle (AV1 on a Shield, say) is not an error for ExoPlayer: the sound
+     * plays over a black picture. Say so instead.
+     */
+    private fun failOnUndecodableVideo(): Boolean {
+        val videos = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+        if (videos.isEmpty() || videos.any { it.isSupported }) return false
+        val mime = videos.first().getTrackFormat(0).sampleMimeType
+        val error = PlaybackError(
+            PlaybackErrorKind.UNSUPPORTED_FORMAT,
+            "Cet appareil ne peut pas décoder la vidéo (${CodecNames.video(mime) ?: mime ?: "format inconnu"}).",
+            "Lisez ce fichier sur le téléphone, ou utilisez une version du fichier en H.264 ou H.265."
+        )
+        PlaybackDiagnostics.line("No decoder for video $mime")
+        player.stop()
+        _events.tryEmit(PlayerEvent.Failed(error))
+        _state.update { it.copy(status = PlaybackStatus.ERROR, error = error) }
+        return true
+    }
+
     private fun onTracksReady() {
         if (player.currentTracks.isEmpty) return
+        if (failOnUndecodableVideo()) return
 
         pendingExternalSubtitleId?.let { id ->
             val index = subtitleGroups().indexOfFirst { it.getTrackFormat(0).id?.contains(id) == true }

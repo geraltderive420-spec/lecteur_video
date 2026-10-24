@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
@@ -77,6 +78,9 @@ class ReceiverHost @Inject constructor(
     private val advertiser = NsdAdvertiser(context)
 
     private var server: RemoteReceiverServer? = null
+
+    /** Socket writes must stay off the main thread; one thread keeps the messages in order. */
+    private val sender = Executors.newSingleThreadExecutor { Thread(it, "remote-receiver-send").apply { isDaemon = true } }
     private var engineJobs = mutableListOf<Job>()
     private var tracker: ResumeTracker? = null
 
@@ -96,7 +100,10 @@ class ReceiverHost @Inject constructor(
     /** Starts listening and advertising. Idempotent. */
     fun start(deviceName: String) {
         if (server != null) return
-        val code = PairingCode.generate()
+        // The code survives restarts, so a phone paired once stays paired.
+        val prefs = context.getSharedPreferences("receiver_pairing", Context.MODE_PRIVATE)
+        val code = prefs.getString("code", null)?.takeIf { it.length == PairingCode.LENGTH }
+            ?: PairingCode.generate().also { prefs.edit().putString("code", it).apply() }
         val receiver = RemoteReceiverServer(deviceName, pairingCode = { code }, listener = listener)
         val port = receiver.start()
         server = receiver
@@ -184,7 +191,7 @@ class ReceiverHost @Inject constructor(
                 val now = System.currentTimeMillis()
                 if (now - lastProgressSentAt >= PROGRESS_INTERVAL_MS) {
                     lastProgressSentAt = now
-                    server?.send(RemoteProgress(current?.mediaFileId, progress.positionMs, progress.durationMs, progress.bufferedMs))
+                    send(RemoteProgress(current?.mediaFileId, progress.positionMs, progress.durationMs, progress.bufferedMs))
                 }
             }
         }
@@ -192,7 +199,7 @@ class ReceiverHost @Inject constructor(
             engine.events.collect { event ->
                 if (event is PlayerEvent.Ended) {
                     val progress = engine.progress.value
-                    server?.send(Ended(current?.mediaFileId, progress.positionMs, progress.durationMs))
+                    send(Ended(current?.mediaFileId, progress.positionMs, progress.durationMs))
                     flushLocal(engine)
                     // A remote session stays on the "ended" screen until the phone picks something else; local playback returns.
                     if (trackLocally) closePlayback()
@@ -245,14 +252,18 @@ class ReceiverHost @Inject constructor(
     // region state
 
     private fun pushState() {
-        val remote = server ?: return
+        if (server == null) return
         val engine = holder.engine.value
         val state = if (engine != null && current != null) {
             RemoteMapping.toRemote(engine.state.value, engine.progress.value, current?.mediaFileId, current?.title, volume(), muted)
         } else {
             com.lecteur.core.common.cast.protocol.RemoteState(volume = volume(), muted = muted)
         }
-        remote.send(state)
+        send(state)
+    }
+
+    private fun send(message: RemoteMessage) {
+        sender.execute { server?.send(message) }
     }
 
     private fun snapshot(engine: Media3PlayerEngine): PlaybackSnapshot {

@@ -45,7 +45,7 @@ sealed interface CastVerdict {
         val message: String
             get() = "Ce fichier ne peut pas être diffusé sur un Chromecast : " +
                 issues.joinToString(" ; ") { it.message } +
-                ". Utilisez le mode compagnon avec l'application Lecteur Média installée sur votre TV Android."
+                ". Utilisez le mode compagnon avec l'application PlexIn installée sur votre TV Android."
     }
 }
 

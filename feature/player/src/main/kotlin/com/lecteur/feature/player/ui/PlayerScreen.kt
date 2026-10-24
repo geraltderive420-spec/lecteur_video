@@ -2,6 +2,7 @@ package com.lecteur.feature.player.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import com.lecteur.feature.cast.ui.CastSheet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -95,6 +96,7 @@ private fun PlayerContent(engine: Media3PlayerEngine, viewModel: PlayerViewModel
     var interaction by remember { mutableLongStateOf(0L) }
     var unlockVisible by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
+    var castOpen by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf(ZoomState()) }
     var viewSize by remember { mutableStateOf(1f to 1f) }
     val hud = remember { HudState() }
@@ -183,6 +185,11 @@ private fun PlayerContent(engine: Media3PlayerEngine, viewModel: PlayerViewModel
                     },
                     enterPip = host.enterPictureInPicture,
                     toggleRotation = host.toggleRotationLock,
+                    cast = {
+                        // Paused first so the position handed to the TV is the one the user is looking at
+                        engine.pause()
+                        castOpen = true
+                    },
                     interaction = { interaction++ }
                 )
             }
@@ -195,6 +202,7 @@ private fun PlayerContent(engine: Media3PlayerEngine, viewModel: PlayerViewModel
                 hasChapters = !ui.chapters.isEmpty,
                 sleepTimer = ui.sleepTimer,
                 canEnterPip = host.canEnterPictureInPicture,
+                canCast = ui.castFileId != null,
                 queue = ui.queue,
                 actions = actions
             )
@@ -235,6 +243,21 @@ private fun PlayerContent(engine: Media3PlayerEngine, viewModel: PlayerViewModel
                         modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 24.dp, bottom = if (controlsVisible) 150.dp else 32.dp)
                     )
                 }
+            }
+
+            val castFileId = ui.castFileId
+            if (castOpen && castFileId != null) {
+                CastSheet(
+                    mediaFileId = castFileId,
+                    onDismiss = {
+                        castOpen = false
+                        engine.play()
+                    },
+                    onOpenRemote = {
+                        castOpen = false
+                        host.close()
+                    }
+                )
             }
 
             PlayerSheetHost(

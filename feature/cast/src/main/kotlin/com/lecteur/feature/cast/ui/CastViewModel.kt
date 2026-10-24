@@ -81,14 +81,19 @@ class CastViewModel @Inject constructor(
     }
 
     /** Connects to a TV with the code typed by the user, then sends the file. */
-    fun castToReceiver(receiver: DiscoveredReceiver, code: String) {
+    fun needsCode(receiver: DiscoveredReceiver): Boolean = !session.isConnectedTo(receiver) && session.savedCode(receiver) == null
+
+    /** [code] is null when the TV is already connected or was paired before: the saved code is used. */
+    fun castToReceiver(receiver: DiscoveredReceiver, code: String? = null) {
         viewModelScope.launch {
             local.update { it.copy(working = true, message = null) }
-            val current = session.ui.value.connection
-            val alreadyThere = current is ConnectionState.Connected && current.receiverName == receiver.deviceName
-            val connected = alreadyThere || session.connect(receiver, code)
+            val connected = session.isConnectedTo(receiver) || run {
+                val usable = code ?: session.savedCode(receiver)
+                usable != null && session.connect(receiver, usable)
+            }
             if (connected) {
                 session.cast(mediaFileId)
+                session.requestRemote()
                 local.update { it.copy(working = false) }
                 _events.send(CastEvent.OpenRemote)
             } else {

@@ -66,15 +66,17 @@ fun CastSheet(mediaFileId: Long, onDismiss: () -> Unit, onOpenRemote: () -> Unit
         ) {
             Text("Diffuser sur un écran", style = MaterialTheme.typography.titleLarge)
 
-            Section("TV avec Lecteur Média (tous les formats)")
+            Section("TV avec PlexIn (tous les formats)")
             if (ui.receivers.isEmpty()) {
                 Text(
-                    "Aucune TV trouvée. Ouvrez l'application Lecteur Média sur votre TV Android, connectée au même Wi-Fi.",
+                    "Aucune TV trouvée. Ouvrez l'application PlexIn sur votre TV Android, connectée au même Wi-Fi.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
             ui.receivers.forEach { receiver ->
-                DeviceRow(receiver.deviceName, Icons.Rounded.Tv) { pending = receiver }
+                DeviceRow(receiver.deviceName, Icons.Rounded.Tv) {
+                    if (viewModel.needsCode(receiver)) pending = receiver else viewModel.castToReceiver(receiver)
+                }
             }
 
             if (ui.chromecastAvailable) {

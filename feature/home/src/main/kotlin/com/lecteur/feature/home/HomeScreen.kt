@@ -83,7 +83,7 @@ fun HomeScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Lecteur Média") },
+                title = { Text("PlexIn") },
                 actions = { IconButton(onClick = onOpenSearch) { Icon(Icons.Rounded.Search, contentDescription = "Rechercher") } }
             )
         },

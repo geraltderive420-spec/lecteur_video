@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PauseCircle
@@ -74,6 +75,7 @@ class ControlActions(
     val lock: () -> Unit,
     val enterPip: () -> Unit,
     val toggleRotation: () -> Unit,
+    val cast: () -> Unit,
     val interaction: () -> Unit
 )
 
@@ -87,6 +89,7 @@ fun PlayerControls(
     hasChapters: Boolean,
     sleepTimer: SleepTimerState,
     canEnterPip: Boolean,
+    canCast: Boolean,
     queue: QueueUi?,
     actions: ControlActions,
     modifier: Modifier = Modifier
@@ -102,7 +105,7 @@ fun PlayerControls(
                 .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
                 .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
-        ) { TopBar(title, canEnterPip, queue, actions) }
+        ) { TopBar(title, canEnterPip, canCast, queue, actions) }
 
         CenterControls(state, seekStepSeconds, hasChapters, actions, Modifier.align(Alignment.Center))
 
@@ -121,7 +124,7 @@ fun PlayerControls(
 }
 
 @Composable
-private fun TopBar(title: String?, canEnterPip: Boolean, queue: QueueUi?, actions: ControlActions) {
+private fun TopBar(title: String?, canEnterPip: Boolean, canCast: Boolean, queue: QueueUi?, actions: ControlActions) {
     Column {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = actions.back) {
@@ -134,6 +137,11 @@ private fun TopBar(title: String?, canEnterPip: Boolean, queue: QueueUi?, action
             }
             IconButton(onClick = actions.nextItem, enabled = queue.hasNext) {
                 Icon(Icons.Rounded.SkipNext, contentDescription = "Fichier suivant", tint = Color.White.copy(alpha = if (queue.hasNext) 1f else 0.4f))
+            }
+        }
+        if (canCast) {
+            IconButton(onClick = actions.cast) {
+                Icon(Icons.Rounded.Cast, contentDescription = "Diffuser sur un écran", tint = Color.White)
             }
         }
         IconButton(onClick = actions.toggleRotation) {
