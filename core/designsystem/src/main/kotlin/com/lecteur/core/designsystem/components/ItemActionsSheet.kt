@@ -38,7 +38,8 @@ fun ItemActionsSheet(
     isFavorite: Boolean?,
     onPlay: () -> Unit,
     onToggleWatched: () -> Unit,
-    onToggleFavorite: () -> Unit,
+    /** Null hides the line (a PC's title: favourites belong to this phone's library). */
+    onToggleFavorite: (() -> Unit)?,
     onOpenDetails: () -> Unit,
     onDismiss: () -> Unit,
     /** Null hides the line (a screen that has no list picker). */
@@ -56,7 +57,7 @@ fun ItemActionsSheet(
                 if (watched) "Marquer comme non vu" else "Marquer comme vu",
                 true
             ) { onDismiss(); onToggleWatched() }
-            ActionRow(
+            if (onToggleFavorite != null) ActionRow(
                 if (isFavorite == true) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 if (isFavorite == true) "Retirer des favoris" else "Ajouter aux favoris",
                 isFavorite != null

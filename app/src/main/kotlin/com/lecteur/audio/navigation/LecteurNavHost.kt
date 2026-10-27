@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
@@ -40,6 +39,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lecteur.audio.BrowseViewModel
 import com.lecteur.audio.Startup
+import com.lecteur.core.data.shared.SERVER_ARG
 import com.lecteur.core.model.LibrarySection
 import com.lecteur.core.model.MediaKind
 import com.lecteur.core.model.PlayPlan
@@ -60,10 +60,8 @@ import com.lecteur.feature.scanner.ui.FoldersScreen
 import com.lecteur.feature.scanner.ui.ReviewScreen
 import com.lecteur.feature.scanner.ui.ScanStatusBanner
 import com.lecteur.feature.settings.SettingsScreen
-import com.lecteur.feature.shared.SharedLibraryViewModel
-import com.lecteur.feature.shared.ui.SharedLibraryScreen
-import com.lecteur.feature.shared.ui.SharedMovieScreen
-import com.lecteur.feature.shared.ui.SharedSeriesScreen
+import com.lecteur.feature.shared.ui.LibrarySourceTitle
+import com.lecteur.feature.shared.ui.LibrarySourceViewModel
 import com.lecteur.feature.shared.ui.SharedServersScreen
 
 private class Tab(val route: String, val target: String, val label: String, val icon: ImageVector)
@@ -71,7 +69,6 @@ private class Tab(val route: String, val target: String, val label: String, val 
 private val TABS = listOf(
     Tab(Screen.Home.route, Screen.Home.route, "Accueil", Icons.Rounded.Home),
     Tab(Screen.Library.route, Screen.Library.create(LibrarySection.MOVIES), "Bibliothèque", Icons.Rounded.VideoLibrary),
-    Tab(Screen.Shared.route, Screen.Shared.route, "Partagés", Icons.Rounded.Computer),
     Tab(Screen.Explorer.route, Screen.Explorer.route, "Dossiers", Icons.Rounded.Folder),
     Tab(Screen.Settings.route, Screen.Settings.route, "Réglages", Icons.Rounded.Settings)
 )
@@ -82,6 +79,9 @@ private const val RAIL_MIN_WIDTH_DP = 600
 /**
  * The app's navigation: four tabs, and everything else (details, search, browse, folders, correction) opened above them.
  * Every playback goes through [onPlay], which starts the player: no screen here knows the player.
+ *
+ * The home, library and search show the library picked from the home's title: this phone's (the default) or a paired
+ * PC's. Both use the same screens; the pages of a PC's titles carry its id, so a page left open keeps its library.
  */
 @Composable
 fun LecteurRoot(startup: Startup, onPlay: (PlayPlan) -> Unit, onWelcomeDone: () -> Unit) {
@@ -159,10 +159,21 @@ private fun NavHostController.navigateTab(route: String) {
 
 @Composable
 private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onWelcomeDone: () -> Unit, modifier: Modifier) {
-    val openMovie: (Long) -> Unit = { nav.navigate(Screen.Movie.create(it)) }
-    val openSeries: (Long) -> Unit = { nav.navigate(Screen.Series.create(it)) }
+    // The library on display: null for this phone's, else the PC's id
+    val sources: LibrarySourceViewModel = hiltViewModel()
+    val source by sources.active.collectAsStateWithLifecycle()
+
+    // Pages of a title open in the library the title comes from
+    val openMovieOf: (String?) -> (Long) -> Unit = { server -> { nav.navigate(Screen.Movie.create(it, server)) } }
+    val openSeriesOf: (String?) -> (Long) -> Unit = { server -> { nav.navigate(Screen.Series.create(it, server)) } }
+    val browseOf: (String?) -> (LibrarySection, BrowseKind, Long) -> Unit = { server ->
+        { section, kind, id -> nav.navigate(Screen.Browse.create(section, kind, id, server)) }
+    }
+    val openMovie = openMovieOf(source)
+    val openSeries = openSeriesOf(source)
     val openSearch: () -> Unit = { nav.navigate(Screen.Search.route) { launchSingleTop = true } }
-    val browse: (LibrarySection, BrowseKind, Long) -> Unit = { section, kind, id -> nav.navigate(Screen.Browse.create(section, kind, id)) }
+    val openServers: () -> Unit = { nav.navigate(Screen.Shared.route) { launchSingleTop = true } }
+    val title: @Composable () -> Unit = { LibrarySourceTitle(onManage = openServers) }
     val back: () -> Unit = { nav.popBackStack() }
 
     // The cast picker belongs to no single screen: any detail page opens it for a file, the remote takes over once a TV plays.
@@ -188,6 +199,8 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 onPlay = onPlay,
                 onOpenSearch = openSearch,
                 onAddFolder = { nav.navigate(Screen.Folders.route) },
+                serverId = source,
+                title = title,
                 banner = { ScanStatusBanner(onClick = { nav.navigate(Screen.Folders.route) }) }
             )
         }
@@ -196,7 +209,9 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
             val section = runCatching { LibrarySection.valueOf(entry.arguments?.getString("section").orEmpty()) }.getOrDefault(LibrarySection.MOVIES)
             LibraryHost(
                 initialSection = section, onOpenMovie = openMovie, onOpenSeries = openSeries, onOpenSearch = openSearch, onPlay = onPlay,
-                onOpenLists = { nav.navigate(Screen.Lists.route) { launchSingleTop = true } }
+                onOpenLists = { nav.navigate(Screen.Lists.route) { launchSingleTop = true } },
+                serverId = source,
+                title = title
             )
         }
 
@@ -213,26 +228,34 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 onBack = back,
                 onOpenMovie = openMovie,
                 onOpenSeries = openSeries,
-                onOpenPerson = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.PERSON, id) },
-                onPlay = onPlay
+                onOpenPerson = { id, _ -> browseOf(source)(LibrarySection.MOVIES, BrowseKind.PERSON, id) },
+                onPlay = onPlay,
+                serverId = source
             )
         }
 
-        composable(Screen.Movie.route, arguments = listOf(navArgument("movieId") { type = NavType.LongType })) { entry ->
+        val serverArg = navArgument(SERVER_ARG) { type = NavType.StringType; nullable = true; defaultValue = null }
+
+        composable(Screen.Movie.route, arguments = listOf(navArgument("movieId") { type = NavType.LongType }, serverArg)) { entry ->
+            val server = entry.arguments?.getString(SERVER_ARG)
+            val browse = browseOf(server)
             MovieDetailScreen(
                 onBack = back,
                 onPlay = onPlay,
                 onOpenPerson = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.PERSON, id) },
                 onOpenGenre = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.GENRE, id) },
                 onOpenCollection = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.COLLECTION, id) },
-                onOpenMovie = openMovie,
+                onOpenMovie = openMovieOf(server),
                 onOpenYear = { decade -> browse(LibrarySection.MOVIES, BrowseKind.DECADE, decade.toLong()) },
                 onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) },
-                onCast = { castFileId = it }
+                // A PC's film plays where the remote is linked to by itself (see MainActivity.play); the picker lists this phone's files
+                onCast = if (server == null) ({ castFileId = it }) else null
             )
         }
 
-        composable(Screen.Series.route, arguments = listOf(navArgument("seriesId") { type = NavType.LongType })) {
+        composable(Screen.Series.route, arguments = listOf(navArgument("seriesId") { type = NavType.LongType }, serverArg)) { entry ->
+            val server = entry.arguments?.getString(SERVER_ARG)
+            val browse = browseOf(server)
             SeriesDetailScreen(
                 onBack = back,
                 onPlay = onPlay,
@@ -240,7 +263,7 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 onOpenGenre = { id, _ -> browse(LibrarySection.SERIES, BrowseKind.GENRE, id) },
                 onOpenYear = { decade -> browse(LibrarySection.SERIES, BrowseKind.DECADE, decade.toLong()) },
                 onCorrect = { kind, id -> nav.navigate(Screen.Correct.create(kind, id)) },
-                onCast = { castFileId = it }
+                onCast = if (server == null) ({ castFileId = it }) else null
             )
         }
 
@@ -249,7 +272,8 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
             arguments = listOf(
                 navArgument("section") { type = NavType.StringType },
                 navArgument("kind") { type = NavType.StringType },
-                navArgument("id") { type = NavType.LongType }
+                navArgument("id") { type = NavType.LongType },
+                serverArg
             )
         ) {
             val viewModel: BrowseViewModel = hiltViewModel()
@@ -259,10 +283,11 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
                 scope = viewModel.scope,
                 scopeLabel = label ?: "Bibliothèque",
                 onBack = back,
-                onOpenMovie = openMovie,
-                onOpenSeries = openSeries,
+                onOpenMovie = openMovieOf(viewModel.serverId),
+                onOpenSeries = openSeriesOf(viewModel.serverId),
                 onOpenSearch = openSearch,
-                onPlay = onPlay
+                onPlay = onPlay,
+                serverId = viewModel.serverId
             )
         }
 
@@ -283,31 +308,18 @@ private fun Destinations(nav: NavHostController, onPlay: (PlayPlan) -> Unit, onW
         composable(Screen.Remote.route) { RemoteScreen(onBack = back) }
 
         composable(Screen.Shared.route) {
-            SharedServersScreen(onOpenServer = { nav.navigate(Screen.SharedLibrary.create(it)) })
-        }
-
-        val serverArg = navArgument(SharedLibraryViewModel.ARG_SERVER) { type = NavType.StringType }
-        composable(Screen.SharedLibrary.route, arguments = listOf(serverArg)) { entry ->
-            val serverId = entry.arguments?.getString(SharedLibraryViewModel.ARG_SERVER).orEmpty()
-            SharedLibraryScreen(
-                onBack = back,
-                onOpenMovie = { nav.navigate(Screen.SharedMovie.create(serverId, it)) },
-                onOpenSeries = { nav.navigate(Screen.SharedSeries.create(serverId, it)) },
-                onPlay = onPlay,
-                onForgotten = back
+            // Opening a PC (or pairing a new one) shows its library on the home screen
+            SharedServersScreen(
+                onOpenServer = {
+                    sources.select(it)
+                    nav.navigateTab(Screen.Home.route)
+                },
+                onBack = back
             )
         }
 
-        composable(Screen.SharedMovie.route, arguments = listOf(serverArg, navArgument("movieId") { type = NavType.LongType })) { entry ->
-            SharedMovieScreen(movieId = entry.arguments?.getLong("movieId") ?: 0L, onBack = back, onPlay = onPlay)
-        }
-
-        composable(Screen.SharedSeries.route, arguments = listOf(serverArg, navArgument("seriesId") { type = NavType.LongType })) { entry ->
-            SharedSeriesScreen(seriesId = entry.arguments?.getLong("seriesId") ?: 0L, onBack = back, onPlay = onPlay)
-        }
-
         composable(Screen.Lists.route) {
-            ListsScreen(onBack = back, onOpenList = { id, _ -> browse(LibrarySection.MOVIES, BrowseKind.LIST, id) })
+            ListsScreen(onBack = back, onOpenList = { id, _ -> browseOf(null)(LibrarySection.MOVIES, BrowseKind.LIST, id) })
         }
 
         composable(Screen.Welcome.route) {

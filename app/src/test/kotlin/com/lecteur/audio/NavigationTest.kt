@@ -34,6 +34,14 @@ class NavigationTest {
     }
 
     @Test
+    fun pagesOfAPcTitleCarryThePc() {
+        assertThat(Screen.Movie.create(12, "pc1")).isEqualTo("movie/12?server=pc1")
+        assertThat(Screen.Series.create(3, "pc1")).isEqualTo("series/3?server=pc1")
+        assertThat(Screen.Browse.create(LibrarySection.SERIES, BrowseKind.GENRE, 5, "pc1")).isEqualTo("browse/SERIES/GENRE/5?server=pc1")
+        assertThat(Screen.Movie.route).contains("{server}")
+    }
+
+    @Test
     fun everyRouteHasItsArgumentsInThePattern() {
         assertThat(Screen.Movie.route).contains("{movieId}")
         assertThat(Screen.Series.route).contains("{seriesId}")

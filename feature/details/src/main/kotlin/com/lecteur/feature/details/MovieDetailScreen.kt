@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MovieFilter
@@ -93,6 +94,8 @@ fun MovieDetailScreen(
     picker?.let {
         ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
     }
+    CopyFolderPicker(viewModel.copy)
+    val source = viewModel.sourceName
 
     Scaffold(modifier = modifier, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -100,14 +103,17 @@ fun MovieDetailScreen(
                 DetailState.Loading -> LoadingBox()
                 DetailState.Missing -> EmptyState(
                     icon = Icons.Rounded.MovieFilter,
-                    title = "Ce film n'existe plus",
-                    message = "Il a été fusionné avec un autre titre, ou son dossier a été retiré de la bibliothèque.",
+                    title = if (source != null) "Ce film n'est plus partagé" else "Ce film n'existe plus",
+                    message = if (source != null) "« $source » ne le partage plus, ou ne répond pas pour le moment."
+                    else "Il a été fusionné avec un autre titre, ou son dossier a été retiré de la bibliothèque.",
                     actionLabel = "Retour",
                     onAction = onBack
                 )
                 is DetailState.Ready -> MovieContent(
                     detail = current.value,
                     refreshing = refreshing,
+                    source = source,
+                    onCopy = viewModel::copyToPhone,
                     onBack = onBack,
                     onPlay = viewModel::play,
                     onToggleWatched = viewModel::toggleWatched,
@@ -132,6 +138,9 @@ fun MovieDetailScreen(
 private fun MovieContent(
     detail: MovieDetail,
     refreshing: Boolean,
+    /** The PC the film comes from; null for this phone's (favourites, lists and corrections belong to those). */
+    source: String?,
+    onCopy: (Long) -> Unit,
     onBack: () -> Unit,
     onPlay: (Long?) -> Unit,
     onToggleWatched: () -> Unit,
@@ -174,6 +183,7 @@ private fun MovieContent(
                     RatingLabel(movie.rating)
                 }
                 BadgesLine(version)
+                if (source != null) SourceLine(source)
                 if (detail.watch == WatchStatus.IN_PROGRESS) {
                     LinearProgressIndicator(progress = { detail.progress }, modifier = Modifier.fillMaxWidth())
                 }
@@ -197,11 +207,14 @@ private fun MovieContent(
                     Modifier.padding(start = 8.dp)
                 )
             }
-            FilledTonalIconButton(onClick = onToggleFavorite) {
+            if (source == null) FilledTonalIconButton(onClick = onToggleFavorite) {
                 Icon(
                     if (detail.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                     contentDescription = if (detail.isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
                 )
+            }
+            if (source != null && version != null) FilledTonalIconButton(onClick = { onCopy(version.mediaFileId) }) {
+                Icon(Icons.Rounded.Download, contentDescription = "Copier sur le téléphone")
             }
             FilledTonalIconButton(onClick = onToggleWatched) {
                 val seen = detail.watch == WatchStatus.WATCHED
@@ -210,9 +223,13 @@ private fun MovieContent(
             OverflowMenu(
                 listOfNotNull(
                     if (onCast != null && version != null) MenuEntry("Diffuser sur un écran") { onCast(version.mediaFileId) } else null,
-                    MenuEntry("Ajouter à une liste", onClick = onAddToList),
-                    MenuEntry("Corriger l'association", onClick = onCorrect),
-                    MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = onRefresh),
+                    if (source != null && version != null) MenuEntry("Copier sur le téléphone") { onCopy(version.mediaFileId) } else null,
+                    if (source == null) MenuEntry("Ajouter à une liste", onClick = onAddToList) else null,
+                    if (source == null) MenuEntry("Corriger l'association", onClick = onCorrect) else null,
+                    when {
+                        source != null -> MenuEntry("Actualiser depuis le PC", onClick = onRefresh)
+                        else -> MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = onRefresh)
+                    },
                     ExternalLinks.imdb(movie.imdbId)?.let { url -> MenuEntry("Voir sur IMDb") { onOpenLink(url) } },
                     ExternalLinks.trailer(movie.trailerKey)?.let { url -> MenuEntry("Bande-annonce") { onOpenLink(url) } },
                     ExternalLinks.tmdb(MediaKind.MOVIE, movie.tmdbId)?.let { url -> MenuEntry("Voir sur TMDB") { onOpenLink(url) } }

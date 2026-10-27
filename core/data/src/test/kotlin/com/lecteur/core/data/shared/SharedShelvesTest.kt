@@ -1,4 +1,4 @@
-package com.lecteur.feature.shared
+package com.lecteur.core.data.shared
 
 import com.google.common.truth.Truth.assertThat
 import com.lecteur.core.common.library.Catalog

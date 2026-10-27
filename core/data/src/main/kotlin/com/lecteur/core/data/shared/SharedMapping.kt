@@ -1,5 +1,6 @@
 package com.lecteur.core.data.shared
 
+import com.lecteur.core.common.library.Catalog
 import com.lecteur.core.common.library.CreditDto
 import com.lecteur.core.common.library.EpisodeDto
 import com.lecteur.core.common.library.FileDto
@@ -7,6 +8,9 @@ import com.lecteur.core.common.library.MovieDto
 import com.lecteur.core.common.library.SeriesDto
 import com.lecteur.core.common.library.WatchDto
 import com.lecteur.core.common.library.best
+import com.lecteur.core.data.library.ContinueItem
+import com.lecteur.core.data.library.NextUpItem
+import com.lecteur.core.data.shared.SharedShelves.isStarted
 import com.lecteur.core.model.CastCredit
 import com.lecteur.core.model.EpisodeItem
 import com.lecteur.core.model.FileVersion
@@ -107,6 +111,37 @@ class SharedMapping(private val art: (String?) -> String?) {
                 else -> WatchStatus.UNWATCHED
             }
         )
+    }
+
+    /** The home's "Reprendre" row of a PC's library, in the phone's own model; [ContinueItem.mediaFileId] is the PC's file id. */
+    fun continueItems(catalog: Catalog): List<ContinueItem> = SharedShelves.continueWatching(catalog).mapNotNull { card ->
+        val movie = card.movieId?.let { id -> catalog.movies.firstOrNull { it.id == id } }
+        val series = card.seriesId?.let { id -> catalog.series.firstOrNull { it.id == id } }
+        val episode = series?.episodes?.firstOrNull { it.id == card.episodeId }
+        val files = movie?.files ?: episode?.files ?: return@mapNotNull null
+        val file = files.filter { it.isStarted() }.maxByOrNull { it.watch!!.lastWatchedAt } ?: return@mapNotNull null
+        val watch = file.watch!!
+        ContinueItem(
+            mediaFileId = file.id,
+            kind = if (movie != null) MediaKind.MOVIE else MediaKind.SERIES,
+            titleId = movie?.id ?: series?.id,
+            episodeId = episode?.id,
+            title = card.title,
+            subtitle = card.subtitle,
+            imagePath = art(card.image),
+            progress = card.progress,
+            remainingMinutes = ((watch.durationMs - watch.positionMs) / 60_000).toInt().coerceAtLeast(0),
+            isAvailable = file.available,
+            lastWatchedAt = watch.lastWatchedAt
+        )
+    }
+
+    /** "Épisodes suivants" of a PC's library: the episode after the last one seen, for each series started. */
+    fun nextUpItems(catalog: Catalog): List<NextUpItem> = SharedShelves.nextUp(catalog).mapNotNull { card ->
+        val series = catalog.series.firstOrNull { it.id == card.seriesId } ?: return@mapNotNull null
+        val episode = series.episodes.firstOrNull { it.id == card.episodeId } ?: return@mapNotNull null
+        val file = episode.files.filter { it.available }.best() ?: return@mapNotNull null
+        NextUpItem(episode.id, series.id, file.id, series.title, card.subtitle.orEmpty(), art(card.image))
     }
 
     private fun episode(e: EpisodeDto): EpisodeItem {

@@ -8,6 +8,10 @@ import com.lecteur.core.data.details.DetailRepository
 import com.lecteur.core.data.library.FolderRepository
 import com.lecteur.core.data.settings.AppearanceRepository
 import com.lecteur.core.data.settings.OnboardingRepository
+import com.lecteur.core.data.shared.SERVER_ARG
+import com.lecteur.core.data.shared.SharedLibraryRepository
+import com.lecteur.core.data.shared.SharedQueries
+import com.lecteur.core.data.shared.catalogOrNull
 import com.lecteur.core.model.AppearanceSettings
 import com.lecteur.core.model.Formatters
 import com.lecteur.core.model.LibraryFilters
@@ -18,6 +22,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -53,16 +58,32 @@ class MainViewModel @Inject constructor(
 class BrowseViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val detail: DetailRepository,
-    private val lists: com.lecteur.core.data.library.UserListsRepository
+    private val lists: com.lecteur.core.data.library.UserListsRepository,
+    private val shared: SharedLibraryRepository
 ) : ViewModel() {
 
     val section: LibrarySection = LibrarySection.valueOf(checkNotNull(savedState.get<String>("section")))
     private val kind: BrowseKind = BrowseKind.valueOf(checkNotNull(savedState.get<String>("kind")))
     private val id: Long = checkNotNull(savedState.get<Long>("id"))
 
+    /** Set when browsing a PC's library: its genres and people are the PC's. */
+    val serverId: String? = savedState.get<String>(SERVER_ARG)?.takeIf { it.isNotBlank() }
+
     val scope: LibraryFilters = kind.scope(id)
 
     val label: Flow<String?> = flow {
+        val server = serverId
+        if (server != null) {
+            val catalog = shared.observe(server).mapNotNull { it.catalogOrNull }.first()
+            return@flow emit(
+                when (kind) {
+                    BrowseKind.GENRE -> SharedQueries.genreName(catalog, id)
+                    BrowseKind.PERSON -> SharedQueries.personName(catalog, id)?.let { "Avec $it" }
+                    BrowseKind.DECADE -> Formatters.decade(id.toInt())
+                    BrowseKind.COLLECTION, BrowseKind.LIST -> null
+                }
+            )
+        }
         emit(
             when (kind) {
                 BrowseKind.GENRE -> detail.genreName(id)

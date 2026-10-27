@@ -11,6 +11,12 @@ import com.lecteur.core.common.library.PairedServers
 import com.lecteur.core.common.library.ServerInfo
 import com.lecteur.core.common.library.WatchDto
 import com.lecteur.core.common.library.WatchReport
+import com.lecteur.core.common.library.best
+import com.lecteur.core.data.search.SearchResults
+import com.lecteur.core.model.LibraryItem
+import com.lecteur.core.model.MediaKind
+import com.lecteur.core.model.PlayPlan
+import com.lecteur.core.model.QueueEntry
 import com.lecteur.core.model.WatchState
 import com.lecteur.core.player.engine.ExternalSubtitleSource
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,7 +25,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -45,6 +54,9 @@ sealed interface CatalogState {
     data class Loaded(val catalog: Catalog, val refreshing: Boolean = false) : CatalogState
     data class Failed(val message: String, val kind: LibraryException.Kind, val previous: Catalog? = null) : CatalogState
 }
+
+/** What can be shown: the catalog read, or the last one while the PC does not answer. */
+val CatalogState.catalogOrNull: Catalog? get() = (this as? CatalogState.Loaded)?.catalog ?: (this as? CatalogState.Failed)?.previous
 
 /**
  * The PCs whose libraries this device reads (Plex style): pairing, catalogs, stream URLs, and the watch state, which
@@ -139,6 +151,117 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
     fun streamUrl(serverId: String, file: FileDto): String? = server(serverId)?.let { client(it).streamUrl(file) }
 
     fun artUrl(serverId: String, key: String?): String? = server(serverId)?.let { client(it).artUrl(key) }
+
+    /** The PC's catalog in the app's own models, its artwork keys turned into URLs. */
+    fun mapping(serverId: String): SharedMapping = SharedMapping { key -> artUrl(serverId, key) }
+
+    /** The search screen's results in a PC's catalog (empty until it is read). */
+    fun search(serverId: String, text: String): Flow<SearchResults> =
+        observe(serverId).map { state -> state.catalogOrNull?.let { SharedQueries.search(it, { key -> artUrl(serverId, key) }, text) } ?: SearchResults(text) }
+
+    /** A PC's catalog as the screens follow it: loaded on first use, kept on screen while it reloads or if the PC stops answering. */
+    fun observe(serverId: String): Flow<CatalogState> {
+        if (_catalogs.value[serverId] == null) refresh(serverId)
+        return _catalogs.map { it[serverId] ?: CatalogState.Loading }.distinctUntilChanged()
+    }
+
+    /** The catalog already read, else read now (a background copy started after the app was closed). */
+    suspend fun loadCatalog(serverId: String): Catalog? {
+        catalog(serverId)?.let { return it }
+        val server = server(serverId) ?: return null
+        return withContext(Dispatchers.IO) {
+            runCatching { client(server).catalog() }.getOrNull()?.also { c -> _catalogs.update { it + (serverId to CatalogState.Loaded(c)) } }
+        }
+    }
+
+    // region play plans: the same "Lire" as the phone's own library, streamed from the PC
+
+    /** [fileId] picks a version; null plays the one being watched, else the best available. */
+    fun planForMovie(serverId: String, movieId: Long, fileId: Long? = null): PlayPlan? {
+        val movie = catalog(serverId)?.movies?.firstOrNull { it.id == movieId } ?: return null
+        val available = movie.files.filter { it.available }
+        val file = available.firstOrNull { it.id == fileId }
+            ?: available.filter { with(SharedShelves) { it.isStarted() } }.maxByOrNull { it.watch!!.lastWatchedAt }
+            ?: available.best()
+            ?: return null
+        val url = streamUrl(serverId, file) ?: return null
+        return PlayPlan(listOf(QueueEntry(url, movie.year?.let { "${movie.title} ($it)" } ?: movie.title)))
+    }
+
+    /** The episode and the following ones, so the player moves on by itself; [fileId] picks the episode's version. */
+    fun planForEpisode(serverId: String, seriesId: Long, episodeId: Long, fileId: Long? = null): PlayPlan? {
+        val series = catalog(serverId)?.series?.firstOrNull { it.id == seriesId } ?: return null
+        val episode = series.episodes.firstOrNull { it.id == episodeId } ?: return null
+        val entries = SharedShelves.queueFrom(series, episode).mapIndexedNotNull { index, (e, best) ->
+            val file = if (index == 0) e.files.firstOrNull { it.id == fileId && it.available } ?: best else best
+            streamUrl(serverId, file)?.let { QueueEntry(it, "${series.title} · ${SharedShelves.episodeLabel(e)}") }
+        }
+        return if (entries.isEmpty()) null else PlayPlan(entries, label = series.title)
+    }
+
+    /** What the series' "Lire" stands for: the episode in progress, the next one, else the first. */
+    fun planForSeries(serverId: String, seriesId: Long): PlayPlan? {
+        val series = catalog(serverId)?.series?.firstOrNull { it.id == seriesId } ?: return null
+        return SharedShelves.seriesTarget(series)?.let { planForEpisode(serverId, seriesId, it.id) }
+    }
+
+    /** A poster's "Lire": the film, or where the series stands. */
+    fun planForItem(serverId: String, item: LibraryItem): PlayPlan? =
+        if (item.kind == MediaKind.MOVIE) planForMovie(serverId, item.id) else planForSeries(serverId, item.id)
+
+    /** A poster's "Marquer comme vu": every file of the film, or of every episode of the series. */
+    fun setWatched(serverId: String, item: LibraryItem, watched: Boolean) {
+        val catalog = catalog(serverId) ?: return
+        val files = if (item.kind == MediaKind.MOVIE) catalog.movies.firstOrNull { it.id == item.id }?.files.orEmpty()
+        else catalog.series.firstOrNull { it.id == item.id }?.episodes?.flatMap { it.files }.orEmpty()
+        setWatched(serverId, files, watched)
+    }
+
+    /** One file on its own, or its episode and the following ones. */
+    fun planForFile(serverId: String, fileId: Long): PlayPlan? {
+        val catalog = catalog(serverId) ?: return null
+        catalog.movies.firstOrNull { m -> m.files.any { it.id == fileId } }?.let { return planForMovie(serverId, it.id, fileId) }
+        catalog.series.forEach { s ->
+            s.episodes.firstOrNull { e -> e.files.any { it.id == fileId } }?.let { return planForEpisode(serverId, s.id, it.id, fileId) }
+        }
+        return null
+    }
+
+    // endregion
+
+    /**
+     * Where a file of the PC goes on the phone, under the library folder of its kind: "Title (year)/file.mkv" for a film,
+     * "Series/Saison 01/file.mkv" for an episode, the PC's subtitle files next to it under the video's name.
+     */
+    suspend fun copySource(serverId: String, fileId: Long): CopySource? {
+        val catalog = loadCatalog(serverId) ?: return null
+        val server = server(serverId) ?: return null
+        val client = client(server)
+        fun source(file: FileDto, kind: MediaKind, title: String, directories: List<String>): CopySource {
+            val base = file.fileName.substringBeforeLast('.')
+            val subtitles = file.subtitles.map { s ->
+                val url = client.subtitleUrl(file, s)
+                val tag = listOfNotNull(s.language, if (s.forced) "forced" else null).joinToString(".").ifEmpty { "${s.index}" }
+                CopySource.Subtitle(url, CopyPaths.safeName("$base.$tag.${url.substringAfterLast('.')}"))
+            }
+            return CopySource(client.streamUrl(file), kind, title, directories.map(CopyPaths::safeName), CopyPaths.safeName(file.fileName), file.sizeBytes, subtitles)
+        }
+        catalog.movies.forEach { m ->
+            m.files.firstOrNull { it.id == fileId }?.let {
+                val title = m.year?.let { y -> "${m.title} ($y)" } ?: m.title
+                return source(it, MediaKind.MOVIE, title, listOf(title))
+            }
+        }
+        catalog.series.forEach { s ->
+            s.episodes.forEach { e ->
+                e.files.firstOrNull { it.id == fileId }?.let {
+                    val season = if (e.season == 0) "Spéciaux" else "Saison %02d".format(e.season)
+                    return source(it, MediaKind.SERIES, "${s.title} · ${SharedShelves.episodeLabel(e)}", listOf(s.title, season))
+                }
+            }
+        }
+        return null
+    }
 
     // region playback (called by the player through PlaybackRequestFactory and the watch store)
 

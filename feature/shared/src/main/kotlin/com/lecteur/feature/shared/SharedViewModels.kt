@@ -5,20 +5,12 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.provider.Settings
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lecteur.core.common.library.Catalog
-import com.lecteur.core.common.library.EpisodeDto
 import com.lecteur.core.common.library.LibraryAdvert
 import com.lecteur.core.common.library.LibraryException
-import com.lecteur.core.common.library.MovieDto
 import com.lecteur.core.common.library.PairedServer
-import com.lecteur.core.common.library.SeriesDto
-import com.lecteur.core.data.shared.CatalogState
 import com.lecteur.core.data.shared.SharedLibraryRepository
-import com.lecteur.core.model.PlayPlan
-import com.lecteur.core.model.QueueEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -162,101 +154,3 @@ class SharedServersViewModel @Inject constructor(
     }
 }
 
-data class LibraryUi(
-    val serverId: String? = null,
-    val serverName: String = "",
-    val state: CatalogState = CatalogState.Loading,
-    val continueWatching: List<ShelfCard> = emptyList(),
-    val nextUp: List<ShelfCard> = emptyList(),
-    val recent: List<ShelfCard> = emptyList()
-) {
-    val catalog: Catalog? get() = (state as? CatalogState.Loaded)?.catalog ?: (state as? CatalogState.Failed)?.previous
-}
-
-/**
- * One PC's library: shelves, movies, series, detail pages and the play plans. Phone screens get the PC from the route;
- * the TV picks it with [select].
- */
-@HiltViewModel
-class SharedLibraryViewModel @Inject constructor(
-    savedState: SavedStateHandle,
-    private val repository: SharedLibraryRepository
-) : ViewModel() {
-    private val serverId = MutableStateFlow(savedState.get<String>(ARG_SERVER))
-
-    val ui: StateFlow<LibraryUi> = combine(serverId, repository.catalogs, repository.servers) { id, catalogs, servers ->
-        if (id == null) return@combine LibraryUi()
-        val state = catalogs[id] ?: CatalogState.Loading
-        val catalog = (state as? CatalogState.Loaded)?.catalog ?: (state as? CatalogState.Failed)?.previous
-        LibraryUi(
-            serverId = id,
-            serverName = servers.firstOrNull { it.serverId == id }?.name ?: catalog?.serverName.orEmpty(),
-            state = state,
-            continueWatching = catalog?.let(SharedShelves::continueWatching).orEmpty(),
-            nextUp = catalog?.let(SharedShelves::nextUp).orEmpty(),
-            recent = catalog?.let(SharedShelves::recentlyAdded).orEmpty()
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryUi())
-
-    init {
-        serverId.value?.let(::ensureLoaded)
-    }
-
-    fun select(id: String) {
-        serverId.value = id
-        ensureLoaded(id)
-    }
-
-    /** Reloads, so progress made on the PC or another device shows. */
-    fun refresh() {
-        serverId.value?.let(repository::refresh)
-    }
-
-    /** The PC removed this device: forget it here too, so it can be paired again. */
-    fun forget() {
-        serverId.value?.let(repository::forget)
-    }
-
-    private fun ensureLoaded(id: String) {
-        if (repository.catalogs.value[id] !is CatalogState.Loaded) repository.refresh(id)
-    }
-
-    fun art(key: String?): String? = serverId.value?.let { repository.artUrl(it, key) }
-
-    fun movie(id: Long): MovieDto? = ui.value.catalog?.movies?.firstOrNull { it.id == id }
-        ?: serverId.value?.let { repository.catalog(it) }?.movies?.firstOrNull { it.id == id }
-
-    fun series(id: Long): SeriesDto? = ui.value.catalog?.series?.firstOrNull { it.id == id }
-        ?: serverId.value?.let { repository.catalog(it) }?.series?.firstOrNull { it.id == id }
-
-    /** The movie's best file, streamed from the PC; the player offers to resume where the PC says it stopped. */
-    fun planForMovie(movie: MovieDto): PlayPlan? {
-        val id = serverId.value ?: return null
-        val file = SharedShelves.movieFile(movie)?.takeIf { it.available } ?: return null
-        val url = repository.streamUrl(id, file) ?: return null
-        return PlayPlan(listOf(QueueEntry(url, movie.year?.let { "${movie.title} ($it)" } ?: movie.title)))
-    }
-
-    /** [episode] and the following ones, so the player moves on to the next episode by itself. */
-    fun planForEpisode(series: SeriesDto, episode: EpisodeDto): PlayPlan? {
-        val id = serverId.value ?: return null
-        val entries = SharedShelves.queueFrom(series, episode).mapNotNull { (e, file) ->
-            repository.streamUrl(id, file)?.let { QueueEntry(it, "${series.title} · ${SharedShelves.episodeLabel(e)}") }
-        }
-        return if (entries.isEmpty()) null else PlayPlan(entries, label = series.title)
-    }
-
-    fun planForSeries(series: SeriesDto): PlayPlan? = SharedShelves.seriesTarget(series)?.let { planForEpisode(series, it) }
-
-    /** The plan behind a home card. */
-    fun planFor(card: ShelfCard): PlayPlan? {
-        card.movieId?.let { id -> return movie(id)?.let(::planForMovie) }
-        val series = card.seriesId?.let(::series) ?: return null
-        val episode = series.episodes.firstOrNull { it.id == card.episodeId } ?: return planForSeries(series)
-        return planForEpisode(series, episode)
-    }
-
-    companion object {
-        const val ARG_SERVER = "serverId"
-    }
-}

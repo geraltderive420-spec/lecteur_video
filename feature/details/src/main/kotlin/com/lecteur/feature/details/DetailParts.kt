@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -171,6 +172,15 @@ fun BadgesLine(version: FileVersion?, modifier: Modifier = Modifier) {
     val texts = version?.badgeTexts().orEmpty()
     if (texts.isEmpty()) return
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) { texts.forEach { Badge(it) } }
+}
+
+/** Where a PC's title plays from: it streams from that PC, and can be copied onto the phone. */
+@Composable
+fun SourceLine(source: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(Icons.Rounded.Computer, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+        Text("Sur « $source »", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 /** The year as a link: it opens everything of the same decade in the library. */

@@ -1,5 +1,6 @@
 package com.lecteur.audio.navigation
 
+import com.lecteur.core.data.shared.SERVER_ARG
 import com.lecteur.core.model.LibraryFilters
 import com.lecteur.core.model.LibrarySection
 import com.lecteur.core.model.MediaKind
@@ -18,9 +19,13 @@ enum class BrowseKind {
     }
 }
 
+/** The optional "?server=" of the pages of a PC's titles: absent for this phone's. */
+private fun server(serverId: String?) = serverId?.let { "?$SERVER_ARG=$it" }.orEmpty()
+
 /**
  * Routes of the app. The four top-level ones sit on the navigation bar; the others open above it.
  * Arguments are ids and enum names only: anything displayed (an actor's name, a genre) is looked up by the destination.
+ * Pages of a PC's titles carry the PC's id ([SERVER_ARG]): a PC's ids are its own, they never mix with this phone's.
  */
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
@@ -31,14 +36,14 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
 
     data object Search : Screen("search")
-    data object Movie : Screen("movie/{movieId}") {
-        fun create(id: Long) = "movie/$id"
+    data object Movie : Screen("movie/{movieId}?$SERVER_ARG={$SERVER_ARG}") {
+        fun create(id: Long, serverId: String? = null) = "movie/$id" + server(serverId)
     }
-    data object Series : Screen("series/{seriesId}") {
-        fun create(id: Long) = "series/$id"
+    data object Series : Screen("series/{seriesId}?$SERVER_ARG={$SERVER_ARG}") {
+        fun create(id: Long, serverId: String? = null) = "series/$id" + server(serverId)
     }
-    data object Browse : Screen("browse/{section}/{kind}/{id}") {
-        fun create(section: LibrarySection, kind: BrowseKind, id: Long) = "browse/${section.name}/${kind.name}/$id"
+    data object Browse : Screen("browse/{section}/{kind}/{id}?$SERVER_ARG={$SERVER_ARG}") {
+        fun create(section: LibrarySection, kind: BrowseKind, id: Long, serverId: String? = null) = "browse/${section.name}/${kind.name}/$id" + server(serverId)
     }
     data object Folders : Screen("folders")
     data object Review : Screen("review")
@@ -48,17 +53,8 @@ sealed class Screen(val route: String) {
     data object Welcome : Screen("welcome")
     data object Remote : Screen("remote")
 
-    /** PCs sharing their library, and what each of them shares (the PC id is the route's first argument). */
+    /** The PCs sharing their library: pairing, forgetting. Which library is shown is picked from the home's title. */
     data object Shared : Screen("shared")
-    data object SharedLibrary : Screen("shared/{serverId}") {
-        fun create(serverId: String) = "shared/$serverId"
-    }
-    data object SharedMovie : Screen("shared/{serverId}/movie/{movieId}") {
-        fun create(serverId: String, id: Long) = "shared/$serverId/movie/$id"
-    }
-    data object SharedSeries : Screen("shared/{serverId}/series/{seriesId}") {
-        fun create(serverId: String, id: Long) = "shared/$serverId/series/$id"
-    }
     data object Lists : Screen("lists")
 
     companion object {
@@ -66,6 +62,6 @@ sealed class Screen(val route: String) {
          * Routes that show the navigation bar. A getter, not a stored value: the companion is initialised while the first
          * subclass (Home...) is still being constructed, and reading `Home.route` at that point finds it null.
          */
-        val topLevel: Set<String> get() = setOf(Home.route, Library.route, Shared.route, Explorer.route, Settings.route)
+        val topLevel: Set<String> get() = setOf(Home.route, Library.route, Explorer.route, Settings.route)
     }
 }

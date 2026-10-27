@@ -94,7 +94,11 @@ fun LibraryHost(
     scopeLabel: String? = null,
     onBack: (() -> Unit)? = null,
     /** Shows the "my lists" button; the top-level library passes it, scoped screens do not. */
-    onOpenLists: (() -> Unit)? = null
+    onOpenLists: (() -> Unit)? = null,
+    /** The PC whose library is on display; null for this phone's. */
+    serverId: String? = null,
+    /** The top bar's title when no [scopeLabel] is set: the library picker, by default "Bibliothèque". */
+    title: @Composable () -> Unit = { Text("Bibliothèque") }
 ) {
     // A saga holds films only: a series tab under it would list every series of the library
     val sections = if (scope.collectionId != null) listOf(LibrarySection.MOVIES) else LibrarySection.entries
@@ -106,12 +110,12 @@ fun LibraryHost(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text(scopeLabel ?: "Bibliothèque") },
+                    title = { if (scopeLabel != null) Text(scopeLabel) else title() },
                     navigationIcon = {
                         if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour") }
                     },
                     actions = {
-                        if (onOpenLists != null) IconButton(onClick = onOpenLists) { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "Mes listes") }
+                        if (onOpenLists != null && serverId == null) IconButton(onClick = onOpenLists) { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "Mes listes") }
                         IconButton(onClick = onOpenSearch) { Icon(Icons.Rounded.Search, contentDescription = "Rechercher") }
                     }
                 )
@@ -135,6 +139,7 @@ fun LibraryHost(
             LibraryPage(
                 section = selected,
                 scope = scope,
+                serverId = serverId,
                 snackbar = snackbar,
                 onOpenMovie = onOpenMovie,
                 onOpenSeries = onOpenSeries,
@@ -148,13 +153,14 @@ fun LibraryHost(
 private fun LibraryPage(
     section: LibrarySection,
     scope: LibraryFilters,
+    serverId: String?,
     snackbar: SnackbarHostState,
     onOpenMovie: (Long) -> Unit,
     onOpenSeries: (Long) -> Unit,
     onPlay: (PlayPlan) -> Unit
 ) {
-    val viewModel: LibraryViewModel = hiltViewModel(key = "${section.name}:${scope.hashCode()}")
-    LaunchedEffect(section, scope) { viewModel.bind(section, scope) }
+    val viewModel: LibraryViewModel = hiltViewModel(key = "${serverId ?: "local"}:${section.name}:${scope.hashCode()}")
+    LaunchedEffect(section, scope, serverId) { viewModel.bind(section, scope, serverId) }
 
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val filters by viewModel.filters.collectAsStateWithLifecycle()
@@ -230,10 +236,10 @@ private fun LibraryPage(
             isFavorite = favorite,
             onPlay = { viewModel.play(item) },
             onToggleWatched = { viewModel.toggleWatched(item) },
-            onToggleFavorite = { viewModel.toggleFavorite(item) },
+            onToggleFavorite = if (viewModel.canFavorite) ({ viewModel.toggleFavorite(item) }) else null,
             onOpenDetails = { open(item) },
             onDismiss = { sheetItem = null },
-            onAddToList = { viewModel.addToList(item) }
+            onAddToList = if (viewModel.canFavorite) ({ viewModel.addToList(item) }) else null
         )
     }
 

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -29,6 +30,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -96,6 +98,8 @@ fun SeriesDetailScreen(
         ListPickerSheet(it, onToggle = viewModel.listPicker::toggle, onCreate = viewModel.listPicker::create, onDismiss = viewModel.listPicker::close)
     }
     val links = LocalUriHandler.current
+    CopyFolderPicker(viewModel.copy)
+    val source = viewModel.sourceName
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -112,14 +116,16 @@ fun SeriesDetailScreen(
                 DetailState.Loading -> LoadingBox()
                 DetailState.Missing -> EmptyState(
                     icon = Icons.Rounded.Tv,
-                    title = "Cette série n'existe plus",
-                    message = "Elle a été fusionnée avec une autre, ou son dossier a été retiré de la bibliothèque.",
+                    title = if (source != null) "Cette série n'est plus partagée" else "Cette série n'existe plus",
+                    message = if (source != null) "« $source » ne la partage plus, ou ne répond pas pour le moment."
+                    else "Elle a été fusionnée avec une autre, ou son dossier a été retiré de la bibliothèque.",
                     actionLabel = "Retour",
                     onAction = onBack
                 )
                 is DetailState.Ready -> SeriesContent(
                     detail = current.value,
                     refreshing = refreshing,
+                    source = source,
                     viewModel = viewModel,
                     onBack = onBack,
                     onCorrect = { onCorrect(MediaKind.SERIES, current.value.series.id) },
@@ -140,6 +146,8 @@ fun SeriesDetailScreen(
 private fun SeriesContent(
     detail: SeriesDetail,
     refreshing: Boolean,
+    /** The PC the series comes from; null for this phone's (favourites, lists, languages and corrections belong to those). */
+    source: String?,
     viewModel: SeriesDetailViewModel,
     onBack: () -> Unit,
     onCorrect: () -> Unit,
@@ -181,6 +189,7 @@ private fun SeriesContent(
                     series.certification?.takeIf { it.isNotBlank() }?.let { Badge(it) }
                     RatingLabel(series.rating)
                 }
+                if (source != null) SourceLine(source)
                 val inLibrary = seasons.sumOf { it.inLibraryCount }
                 val watched = seasons.sumOf { it.watchedCount }
                 if (inLibrary > 0) {
@@ -200,7 +209,7 @@ private fun SeriesContent(
                 Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                 Text(playLabel(target?.kind, target?.episode), Modifier.padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            FilledTonalIconButton(onClick = viewModel::toggleFavorite) {
+            if (source == null) FilledTonalIconButton(onClick = viewModel::toggleFavorite) {
                 Icon(
                     if (detail.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                     contentDescription = if (detail.isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
@@ -208,12 +217,16 @@ private fun SeriesContent(
             }
             OverflowMenu(
                 listOfNotNull(
-                    MenuEntry("Langues préférées de la série") { showLanguages = true },
+                    if (source != null) MenuEntry("Copier toute la série sur le téléphone", onClick = viewModel::copySeries) else null,
+                    if (source == null) MenuEntry("Langues préférées de la série") { showLanguages = true } else null,
                     MenuEntry("Marquer toute la série comme vue") { viewModel.setSeriesWatched(true) },
                     MenuEntry("Marquer toute la série comme non vue") { viewModel.setSeriesWatched(false) },
-                    MenuEntry("Ajouter à une liste", onClick = onAddToList),
-                    MenuEntry("Corriger l'association", onClick = onCorrect),
-                    MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = viewModel::refresh),
+                    if (source == null) MenuEntry("Ajouter à une liste", onClick = onAddToList) else null,
+                    if (source == null) MenuEntry("Corriger l'association", onClick = onCorrect) else null,
+                    when {
+                        source != null -> MenuEntry("Actualiser depuis le PC", onClick = viewModel::refresh)
+                        else -> MenuEntry(if (refreshing) "Actualisation…" else "Actualiser les informations", enabled = !refreshing, onClick = viewModel::refresh)
+                    },
                     ExternalLinks.imdb(series.imdbId)?.let { url -> MenuEntry("Voir sur IMDb") { onOpenLink(url) } },
                     ExternalLinks.tmdb(MediaKind.SERIES, series.tmdbId)?.let { url -> MenuEntry("Voir sur TMDB") { onOpenLink(url) } }
                 )
@@ -239,7 +252,7 @@ private fun SeriesContent(
                         Tab(selected = s.seasonNumber == season.seasonNumber, onClick = { selectedNumber = s.seasonNumber }, text = { Text(s.title) })
                     }
                 }
-                SeasonHeader(season, viewModel)
+                SeasonHeader(season, viewModel, canCopy = source != null)
                 season.episodes.forEach { episode ->
                     EpisodeRow(
                         episode = episode,
@@ -261,6 +274,7 @@ private fun SeriesContent(
             onPlay = { fileId -> viewModel.playEpisode(episode, fileId) },
             onToggleWatched = { viewModel.setEpisodeWatched(episode, episode.watch != WatchStatus.WATCHED) },
             onCast = onCast,
+            onCopy = if (source != null) { fileId -> viewModel.copyEpisode(episode, fileId) } else null,
             onDismiss = { episodeMenu = null }
         )
     }
@@ -279,7 +293,7 @@ private fun SeriesContent(
 }
 
 @Composable
-private fun SeasonHeader(season: SeasonDetail, viewModel: SeriesDetailViewModel) {
+private fun SeasonHeader(season: SeasonDetail, viewModel: SeriesDetailViewModel, canCopy: Boolean) {
     val allWatched = season.inLibraryCount > 0 && season.watchedCount == season.inLibraryCount
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -291,6 +305,11 @@ private fun SeasonHeader(season: SeasonDetail, viewModel: SeriesDetailViewModel)
         if (season.inLibraryCount > 0) {
             TextButton(onClick = { viewModel.setSeasonWatched(season, !allWatched) }) {
                 Text(if (allWatched) "Tout marquer non vu" else "Tout marquer vu")
+            }
+        }
+        if (canCopy && season.episodes.any { it.isAvailable }) {
+            IconButton(onClick = { viewModel.copySeason(season) }) {
+                Icon(Icons.Rounded.Download, contentDescription = "Copier la saison sur le téléphone")
             }
         }
     }
@@ -351,7 +370,15 @@ private fun EpisodeRow(episode: EpisodeItem, onPlay: () -> Unit, onMenu: () -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, onToggleWatched: () -> Unit, onCast: ((Long) -> Unit)?, onDismiss: () -> Unit) {
+private fun EpisodeActionsSheet(
+    episode: EpisodeItem,
+    onPlay: (Long?) -> Unit,
+    onToggleWatched: () -> Unit,
+    onCast: ((Long) -> Unit)?,
+    /** A PC's episode: copies the version given (null: the best one) onto the phone. */
+    onCopy: ((Long?) -> Unit)?,
+    onDismiss: () -> Unit
+) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 24.dp)) {
             Text("${episode.label} · ${episode.title.orEmpty()}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -367,6 +394,17 @@ private fun EpisodeActionsSheet(episode: EpisodeItem, onPlay: (Long?) -> Unit, o
             if (onCast != null && castable != null) {
                 TextButton(onClick = { onDismiss(); onCast(castable.mediaFileId) }, modifier = Modifier.padding(horizontal = 12.dp)) {
                     Text(if (playable.size > 1) "Diffuser · ${castable.shortLabel}" else "Diffuser sur un écran")
+                }
+            }
+            if (onCopy != null) {
+                if (playable.size > 1) {
+                    playable.forEach { version ->
+                        TextButton(onClick = { onDismiss(); onCopy(version.mediaFileId) }, modifier = Modifier.padding(horizontal = 12.dp)) {
+                            Text("Copier sur le téléphone · ${version.shortLabel}")
+                        }
+                    }
+                } else if (playable.size == 1) {
+                    TextButton(onClick = { onDismiss(); onCopy(null) }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Copier sur le téléphone") }
                 }
             }
             if (episode.isInLibrary) {

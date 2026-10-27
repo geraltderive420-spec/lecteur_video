@@ -36,8 +36,8 @@ import com.lecteur.core.model.SeasonDetail
 import com.lecteur.core.model.SeriesDetail
 import com.lecteur.core.model.WatchStatus
 import com.lecteur.feature.cast.receiver.ReceiverHost
-import com.lecteur.feature.shared.SharedShelves
-import com.lecteur.feature.shared.ShelfCard
+import com.lecteur.core.data.shared.SharedShelves
+import com.lecteur.core.data.shared.ShelfCard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow

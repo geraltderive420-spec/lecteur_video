@@ -56,6 +56,7 @@ import com.lecteur.core.data.playback.PlayPlanner
 import com.lecteur.core.data.search.FileHit
 import com.lecteur.core.data.search.PersonHit
 import com.lecteur.core.data.search.SearchRepository
+import com.lecteur.core.data.shared.SharedLibraryRepository
 import com.lecteur.core.data.search.SearchResults
 import com.lecteur.core.data.search.TitleHit
 import com.lecteur.core.designsystem.components.EmptyState
@@ -91,15 +92,23 @@ sealed interface SearchEvent {
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     search: SearchRepository,
-    private val planner: PlayPlanner
+    private val planner: PlayPlanner,
+    private val shared: SharedLibraryRepository
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
 
+    /** The PC whose library is searched; null for this phone's. */
+    private val serverId = MutableStateFlow<String?>(null)
+
     val state: StateFlow<SearchUi> = combine(
         query,
-        query.debounce(DEBOUNCE_MS).distinctUntilChanged().flatMapLatest { text ->
-            if (text.isBlank()) flowOf(null) else search.search(text)
+        combine(query.debounce(DEBOUNCE_MS).distinctUntilChanged(), serverId, ::Pair).flatMapLatest { (text, id) ->
+            when {
+                text.isBlank() -> flowOf(null)
+                id != null -> shared.search(id, text)
+                else -> search.search(text)
+            }
         }
     ) { text, results ->
         // Results of an earlier keystroke stay up until the new ones arrive: no flicker between letters
@@ -113,9 +122,15 @@ class SearchViewModel @Inject constructor(
         query.value = text
     }
 
+    /** Searches a PC's library ([id]) or this phone's (null). */
+    fun bind(id: String?) {
+        serverId.value = id
+    }
+
     fun playFile(hit: FileHit) {
         viewModelScope.launch {
-            val plan = planner.forFile(hit.mediaFileId)
+            val id = serverId.value
+            val plan = if (id != null) shared.planForFile(id, hit.mediaFileId) else planner.forFile(hit.mediaFileId)
             eventChannel.send(if (plan != null) SearchEvent.Play(plan) else SearchEvent.Message("Ce fichier n'est pas disponible : le support est peut-être débranché."))
         }
     }
@@ -135,8 +150,11 @@ fun SearchScreen(
     onOpenPerson: (personId: Long, name: String) -> Unit,
     onPlay: (PlayPlan) -> Unit,
     modifier: Modifier = Modifier,
+    /** The PC whose library is searched; null for this phone's. */
+    serverId: String? = null,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
+    viewModel.bind(serverId)
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val focus = remember { FocusRequester() }

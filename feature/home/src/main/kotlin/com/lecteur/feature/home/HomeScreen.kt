@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -61,9 +62,14 @@ fun HomeScreen(
     onOpenSearch: () -> Unit,
     onAddFolder: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The PC whose library is on display; null for this phone's. */
+    serverId: String? = null,
+    /** The top bar's title: the library picker, by default the app's name. */
+    title: @Composable () -> Unit = { Text("PlexIn") },
     banner: @Composable () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
+    viewModel.bind(serverId)
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var sheetItem by remember { mutableStateOf<LibraryItem?>(null) }
@@ -83,16 +89,28 @@ fun HomeScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("PlexIn") },
+                title = title,
                 actions = { IconButton(onClick = onOpenSearch) { Icon(Icons.Rounded.Search, contentDescription = "Rechercher") } }
             )
         },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            banner()
+            if (ui.source == null) banner()
             when {
                 !ui.loaded -> LoadingBox()
+                ui.sourceError != null -> EmptyState(
+                    icon = Icons.Rounded.CloudOff,
+                    title = "« ${ui.source} » ne répond pas",
+                    message = ui.sourceError!!,
+                    actionLabel = "Réessayer",
+                    onAction = viewModel::refreshSource
+                )
+                ui.source != null && ui.fileCount == 0 -> EmptyState(
+                    icon = Icons.Rounded.VideoLibrary,
+                    title = "Rien de partagé pour le moment",
+                    message = "« ${ui.source} » ne partage encore aucun film ni aucune série. Ajoutez des dossiers à la bibliothèque du PC."
+                )
                 ui.folderCount == 0 -> EmptyState(
                     icon = Icons.Rounded.CreateNewFolder,
                     title = "Votre bibliothèque est vide",
@@ -129,10 +147,10 @@ fun HomeScreen(
             isFavorite = favorite,
             onPlay = { viewModel.play(item) },
             onToggleWatched = { viewModel.setWatched(item, item.watch != com.lecteur.core.model.WatchStatus.WATCHED) },
-            onToggleFavorite = { viewModel.toggleFavorite(item) },
+            onToggleFavorite = if (viewModel.canFavorite) ({ viewModel.toggleFavorite(item) }) else null,
             onOpenDetails = { openItem(item) },
             onDismiss = { sheetItem = null },
-            onAddToList = { viewModel.addToList(item) }
+            onAddToList = if (viewModel.canFavorite) ({ viewModel.addToList(item) }) else null
         )
     }
 

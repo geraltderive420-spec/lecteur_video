@@ -9,6 +9,9 @@ import com.lecteur.core.data.library.ListPickerModel
 import com.lecteur.core.data.library.UserListsRepository
 import com.lecteur.core.data.library.LibraryRepository
 import com.lecteur.core.data.settings.LibraryViewRepository
+import com.lecteur.core.data.shared.SharedLibraryRepository
+import com.lecteur.core.data.shared.SharedQueries
+import com.lecteur.core.data.shared.catalogOrNull
 import com.lecteur.core.model.FilterOptions
 import com.lecteur.core.model.LibraryFilters
 import com.lecteur.core.model.LibraryItem
@@ -32,7 +35,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -40,8 +45,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** What one library page shows: a shelf, narrowed by the entry the user browsed from (an actor, a saga...). */
-data class LibraryBinding(val section: LibrarySection, val scope: LibraryFilters)
+/**
+ * What one library page shows: a shelf, narrowed by the entry the user browsed from (an actor, a saga...), of this
+ * phone's library or of a PC's ([serverId]).
+ */
+data class LibraryBinding(val section: LibrarySection, val scope: LibraryFilters, val serverId: String? = null)
 
 sealed interface LibraryEvent {
     data class Play(val plan: PlayPlan) : LibraryEvent
@@ -54,7 +62,8 @@ class LibraryViewModel @Inject constructor(
     private val library: LibraryRepository,
     private val views: LibraryViewRepository,
     private val actions: ItemActions,
-    lists: UserListsRepository
+    lists: UserListsRepository,
+    private val shared: SharedLibraryRepository
 ) : ViewModel() {
 
     val listPicker = ListPickerModel(lists, viewModelScope)
@@ -77,20 +86,34 @@ class LibraryViewModel @Inject constructor(
      * starting with the default one: the first query already uses the order the user left.
      */
     val items: Flow<PagingData<LibraryItem>> = combine(binding.filterNotNull(), storedPrefs.map { it.sort }.distinctUntilChanged(), _filters) { b, sort, filters ->
-        LibraryQuery(b.section, sort, filters)
-    }.distinctUntilChanged().flatMapLatest { library.paged(it) }.cachedIn(viewModelScope)
+        b.serverId to LibraryQuery(b.section, sort, filters)
+    }.distinctUntilChanged().flatMapLatest { (serverId, query) ->
+        if (serverId == null) library.paged(query)
+        else {
+            // A PC's catalog is in memory already: filtered and sorted at once, the same sorts and filters as this phone's
+            val mapping = shared.mapping(serverId)
+            shared.observe(serverId).mapNotNull { it.catalogOrNull }.map { PagingData.from(SharedQueries.items(it, mapping, query)) }
+        }
+    }.cachedIn(viewModelScope)
 
     private val eventChannel = Channel<LibraryEvent>(Channel.BUFFERED)
     val events: Flow<LibraryEvent> = eventChannel.receiveAsFlow()
 
     /** Called by the page with what it shows; a second call with the same binding changes nothing (recomposition, rotation). */
-    fun bind(section: LibrarySection, scope: LibraryFilters) {
-        val next = LibraryBinding(section, scope)
+    fun bind(section: LibrarySection, scope: LibraryFilters, serverId: String? = null) {
+        val next = LibraryBinding(section, scope, serverId)
         if (binding.value == next) return
         binding.value = next
         _filters.value = scope
-        viewModelScope.launch { _options.value = library.filterOptions(section) }
+        _options.value = null
+        viewModelScope.launch {
+            _options.value = if (serverId == null) library.filterOptions(section)
+            else shared.observe(serverId).mapNotNull { it.catalogOrNull }.first().let { SharedQueries.filterOptions(it, section) }
+        }
     }
+
+    /** Favourites and lists belong to this phone's library: a PC's titles have none. */
+    val canFavorite: Boolean get() = binding.value?.serverId == null
 
     fun setFilters(filters: LibraryFilters) {
         _filters.value = filters
@@ -120,7 +143,8 @@ class LibraryViewModel @Inject constructor(
 
     fun play(item: LibraryItem) {
         viewModelScope.launch {
-            val plan = actions.play(item)
+            val serverId = binding.value?.serverId
+            val plan = if (serverId != null) shared.planForItem(serverId, item) else actions.play(item)
             eventChannel.send(
                 if (plan != null) LibraryEvent.Play(plan)
                 else LibraryEvent.Message("Aucun fichier de « ${item.title} » n'est disponible : le support est peut-être débranché.")
@@ -129,15 +153,17 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun toggleWatched(item: LibraryItem) {
+        binding.value?.serverId?.let { return shared.setWatched(it, item, item.watch != WatchStatus.WATCHED) }
         viewModelScope.launch { actions.setWatched(item, item.watch != WatchStatus.WATCHED) }
     }
 
     fun toggleFavorite(item: LibraryItem) {
+        if (!canFavorite) return
         viewModelScope.launch {
             val now = actions.toggleFavorite(item)
             eventChannel.send(LibraryEvent.Message(if (now) "« ${item.title} » ajouté aux favoris" else "« ${item.title} » retiré des favoris"))
         }
     }
 
-    suspend fun isFavorite(item: LibraryItem): Boolean = actions.isFavorite(item)
+    suspend fun isFavorite(item: LibraryItem): Boolean = canFavorite && actions.isFavorite(item)
 }
