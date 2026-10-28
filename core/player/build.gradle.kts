@@ -35,6 +35,8 @@ dependencies {
 
     // Media3 is part of the public API (ExoPlayer instance is handed to the UI layer)
     api(libs.androidx.media3.exoplayer)
+    // Smaller versions streamed by a PC (transcoded while they play) come as HLS
+    implementation(libs.androidx.media3.exoplayer.hls)
     api(libs.androidx.media3.session)
     api(libs.androidx.media3.common)
     implementation(libs.androidx.media3.datasource)

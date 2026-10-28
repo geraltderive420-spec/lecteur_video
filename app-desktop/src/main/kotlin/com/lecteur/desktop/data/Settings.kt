@@ -130,6 +130,8 @@ data class AppSettings(
     val serverId: String = LibrarySignature.newId(),
     /** Devices allowed to read the shared library. Removing one revokes it at once. */
     val sharedDevices: List<SharedDevice> = emptyList(),
+    /** Devices may ask for smaller versions of the files (streaming and downloads), made by ffmpeg on this PC. */
+    val transcodingEnabled: Boolean = true,
     /** Closing the window leaves the app in the notification area, still serving and receiving (Plex style). */
     val closeToTray: Boolean = true,
     /** The "still running in the background" balloon, shown the first time the window is closed. */

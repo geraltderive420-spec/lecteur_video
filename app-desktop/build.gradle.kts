@@ -15,7 +15,7 @@ val tmdbApiKey: String = run {
     (fromFile ?: System.getenv("TMDB_API_KEY") ?: "").trim()
 }
 
-val appVersion = "1.0.8"
+val appVersion = "1.0.9"
 
 val generateBuildConfig by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildconfig")
@@ -99,6 +99,20 @@ val prepareVlc by tasks.registering(Sync::class) {
     }
 }
 
+// ffmpeg makes the smaller versions devices ask for (transcoding): copied from FFMPEG_DIR (a folder holding ffmpeg.exe,
+// or its bin\), else from the first ffmpeg.exe on the PATH of the build machine. Without one the app works, minus transcoding.
+val ffmpegSource: File? = run {
+    val dir = System.getenv("FFMPEG_DIR")?.let(::File)
+    val candidates = listOfNotNull(dir?.resolve("ffmpeg.exe"), dir?.resolve("bin/ffmpeg.exe")) +
+        System.getenv("PATH").orEmpty().split(File.pathSeparatorChar).filter { it.isNotBlank() }.map { File(it, "ffmpeg.exe") }
+    candidates.firstOrNull { it.isFile }
+}
+
+val prepareFfmpeg by tasks.registering(Sync::class) {
+    ffmpegSource?.let { from(it) } ?: doFirst { logger.warn("ffmpeg.exe not found (FFMPEG_DIR or PATH): the build has no transcoding") }
+    into(layout.buildDirectory.dir("vlc-resources/windows/ffmpeg"))
+}
+
 compose.desktop {
     application {
         mainClass = "com.lecteur.desktop.MainKt"
@@ -127,7 +141,7 @@ compose.desktop {
 }
 
 tasks.matching { it.name in setOf("prepareAppResources", "run", "createDistributable", "packageExe", "packageMsi") }
-    .configureEach { dependsOn(prepareVlc) }
+    .configureEach { dependsOn(prepareVlc, prepareFfmpeg) }
 
 // Self-test (not shipped): scans a sample library, renders every screen off-screen, plays files and drives the receiver
 // the way the phone does. ./gradlew :app-desktop:selfTest -PselfTestDir=<folder with Films/ and Series/>
@@ -137,7 +151,7 @@ val selftest: SourceSet by sourceSets.creating {
 }
 
 tasks.register<JavaExec>("selfTest") {
-    dependsOn(prepareVlc)
+    dependsOn(prepareVlc, prepareFfmpeg)
     classpath = selftest.runtimeClasspath
     mainClass.set("com.lecteur.desktop.SelfTestKt")
     val dir = (findProperty("selfTestDir") as String?) ?: layout.buildDirectory.dir("selftest").get().asFile.absolutePath

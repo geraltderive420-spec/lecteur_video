@@ -5,6 +5,7 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -73,15 +74,39 @@ object LibraryUrls {
     const val KIND_SUBTITLE = "sub"
     const val KIND_ART = "art"
 
-    data class Resource(val deviceId: String, val signature: String, val kind: String, val id: String) {
+    /** A file made smaller by the PC, as HLS: `hls/<fileId>-<height>/index.m3u8`, its segments next to it. */
+    const val KIND_HLS = "hls"
+
+    /** A file made smaller by the PC, for keeping on the device: `dl/<fileId>-<height>`. */
+    const val KIND_DOWNLOAD = "dl"
+
+    /** The playlist of a [KIND_HLS] stream; its segments are named relative to it. */
+    const val HLS_PLAYLIST = "index.m3u8"
+
+    /** [name] is the unsigned tail (cosmetic, or the HLS playlist or segment asked for). */
+    data class Resource(val deviceId: String, val signature: String, val kind: String, val id: String, val name: String? = null) {
         val signed: String get() = "$kind/$id"
     }
 
-    /** A stream URL recognised as one of a shared library: which PC ([baseUrl]) and which of its files. */
-    data class StreamRef(val baseUrl: String, val deviceId: String, val fileId: Long)
+    /** A stream URL recognised as one of a shared library: which PC ([baseUrl]) and which of its files; [height] when transcoded. */
+    data class StreamRef(val baseUrl: String, val deviceId: String, val fileId: Long, val height: Int? = null)
 
     fun stream(baseUrl: String, credentials: DeviceCredentials, fileId: Long, fileName: String): String =
         build(baseUrl, credentials, KIND_STREAM, fileId.toString(), fileName)
+
+    /** The file at [height] lines, transcoded by the PC while it plays (seekable: HLS). */
+    fun hls(baseUrl: String, credentials: DeviceCredentials, fileId: Long, height: Int): String =
+        build(baseUrl, credentials, KIND_HLS, "$fileId-$height", HLS_PLAYLIST)
+
+    fun download(baseUrl: String, credentials: DeviceCredentials, fileId: Long, height: Int, fileName: String): String =
+        build(baseUrl, credentials, KIND_DOWNLOAD, "$fileId-$height", fileName)
+
+    /** "12-720" → 12 to 720. */
+    fun splitTranscoded(id: String): Pair<Long, Int>? {
+        val fileId = id.substringBefore('-').toLongOrNull() ?: return null
+        val height = id.substringAfter('-', "").toIntOrNull()?.takeIf { it > 0 } ?: return null
+        return fileId to height
+    }
 
     fun subtitle(baseUrl: String, credentials: DeviceCredentials, fileId: Long, index: Int, fileName: String = "sub"): String =
         build(baseUrl, credentials, KIND_SUBTITLE, "$fileId-$index", fileName)
@@ -96,7 +121,8 @@ object LibraryUrls {
         if (parts.size < 4) return null
         val (device, signature, kind, id) = parts
         if (!device.isHex() || !signature.isHex() || kind.isEmpty() || id.isEmpty() || !id.all { it.isLetterOrDigit() || it == '-' }) return null
-        return Resource(device, signature, kind, id)
+        val name = parts.getOrNull(4)?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
+        return Resource(device, signature, kind, id, name)
     }
 
     /** Recognises a stream URL built by [stream], whatever the host; null for any other URI. */
@@ -104,10 +130,13 @@ object LibraryUrls {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         if (uri.scheme != "http" && uri.scheme != "https") return null
         val resource = parse(uri.rawPath ?: return null) ?: return null
-        if (resource.kind != KIND_STREAM) return null
-        val fileId = resource.id.toLongOrNull() ?: return null
+        val (fileId, height) = when (resource.kind) {
+            KIND_STREAM -> (resource.id.toLongOrNull() ?: return null) to null
+            KIND_HLS -> splitTranscoded(resource.id) ?: return null
+            else -> return null
+        }
         val port = if (uri.port > 0) ":${uri.port}" else ""
-        return StreamRef("${uri.scheme}://${uri.host}$port", resource.deviceId, fileId)
+        return StreamRef("${uri.scheme}://${uri.host}$port", resource.deviceId, fileId, height)
     }
 
     private fun build(baseUrl: String, credentials: DeviceCredentials, kind: String, id: String, name: String?): String {

@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import com.lecteur.core.data.playback.PlaybackRequestFactory
+import com.lecteur.core.data.shared.SharedLibraryRepository
+import com.lecteur.core.data.shared.StreamQualities
 import com.lecteur.core.player.chapters.MediaChapter
 import com.lecteur.core.player.display.DisplayMode
 import com.lecteur.core.player.engine.Media3PlayerEngine
@@ -34,7 +37,9 @@ import javax.inject.Inject
 class TvReceiverViewModel @Inject constructor(
     private val host: ReceiverHost,
     private val settingsRepository: PlayerSettingsRepository,
-    private val probe: MediaProbe
+    private val probe: MediaProbe,
+    private val shared: SharedLibraryRepository,
+    private val requestFactory: PlaybackRequestFactory
 ) : ViewModel() {
     val ui: StateFlow<ReceiverUi> = host.ui
     val engine: StateFlow<Media3PlayerEngine?> = host.engine
@@ -51,6 +56,38 @@ class TvReceiverViewModel @Inject constructor(
     val sleep: StateFlow<SleepTimerState> = sleepTimer.state
 
     private var probedUri: String? = null
+
+    private val _quality = MutableStateFlow<StreamQualities?>(null)
+
+    /** A PC's file the PC can bring down to a smaller height while it plays; null for anything else. */
+    val quality: StateFlow<StreamQualities?> = _quality.asStateFlow()
+
+    /** Follows the file being played (a PC's, or not). */
+    fun refreshQuality(engine: Media3PlayerEngine) {
+        val uri = engine.player.currentMediaItem?.localConfiguration?.uri?.toString()
+        _quality.value = uri?.let(shared::qualities)
+    }
+
+    /**
+     * Plays the PC's file at another quality ([height] 0: the original), from where it is now; the PC encodes from that
+     * point, so the picture comes back after a couple of seconds.
+     */
+    fun setQuality(height: Int) {
+        val engine = engine.value ?: return
+        val uri = engine.player.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        val target = shared.streamUrlAt(uri, height.takeIf { it > 0 }) ?: return
+        if (target == uri) return
+        val position = engine.progress.value.positionMs
+        viewModelScope.launch {
+            val prepared = runCatching { requestFactory.forUri(target) }.getOrNull() ?: return@launch
+            // Another quality has other tracks (a smaller version carries one audio track): the language choice picks again
+            host.open(
+                prepared.request.copy(startPositionMs = position, playWhenReady = true, savedAudioIndex = null, savedSubtitleIndex = null),
+                trackLocally = true
+            )
+            _quality.value = shared.qualities(target)
+        }
+    }
 
     fun closePlayback() {
         sleepTimer.cancel()

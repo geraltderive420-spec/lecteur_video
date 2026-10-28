@@ -1,5 +1,7 @@
 package com.lecteur.feature.player.ui
 
+import com.lecteur.core.common.library.TranscodeLevels
+import com.lecteur.core.data.shared.StreamQualities
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -86,6 +88,7 @@ fun PlayerSheetHost(
                 PlayerSheet.TRACKS -> TracksContent(viewModel, state, host, onOpenStyle = { onSelectSheet(PlayerSheet.SUBTITLE_STYLE) })
                 PlayerSheet.SUBTITLE_STYLE -> SubtitleStyleContent(settings, viewModel)
                 PlayerSheet.SPEED -> SpeedContent(state.speed, viewModel)
+                PlayerSheet.QUALITY -> QualityContent(ui.quality, viewModel, onDismiss)
                 PlayerSheet.DISPLAY -> DisplayContent(ui.displayMode, viewModel, onDismiss)
                 PlayerSheet.CHAPTERS -> ChaptersContent(ui, progress, viewModel, onDismiss)
                 PlayerSheet.SLEEP -> SleepContent(ui.sleepTimer, viewModel, onDismiss)
@@ -276,6 +279,28 @@ private fun SpeedContent(current: Float, viewModel: PlayerViewModel) {
         modifier = Modifier.padding(top = 12.dp)
     )
     Text("Actuelle : ${TimeFormat.speed(current)} (la voix garde sa hauteur)", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun QualityContent(quality: StreamQualities?, viewModel: PlayerViewModel, onDismiss: () -> Unit) {
+    Title("Qualité")
+    if (quality == null) return
+    ChoiceRow(selected = quality.current == null, label = "Originale", supporting = "Le fichier tel quel, sans conversion") {
+        viewModel.setQuality(0)
+        onDismiss()
+    }
+    quality.heights.forEach { height ->
+        ChoiceRow(selected = quality.current == height, label = "${height}p", supporting = "Environ ${"%.1f".format(TranscodeLevels.videoKbps(height) / 1000f).replace('.', ',')} Mb/s, converti par le PC") {
+            viewModel.setQuality(height)
+            onDismiss()
+        }
+    }
+    Text(
+        "Une qualité réduite consomme moins de réseau : utile en Wi-Fi faible ou en données mobiles. Le choix vaut aussi pour les épisodes suivants.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp)
+    )
 }
 
 @Composable

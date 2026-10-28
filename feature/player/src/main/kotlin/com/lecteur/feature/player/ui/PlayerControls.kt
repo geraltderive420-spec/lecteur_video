@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
@@ -56,10 +57,11 @@ import com.lecteur.core.player.engine.PlaybackStatus
 import com.lecteur.core.player.engine.PlayerState
 import com.lecteur.core.player.engine.Progress
 import com.lecteur.core.player.sleep.SleepTimerState
+import com.lecteur.core.data.shared.StreamQualities
 import com.lecteur.feature.player.QueueUi
 import com.lecteur.feature.player.TimeFormat
 
-enum class PlayerSheet { TRACKS, SUBTITLE_STYLE, SPEED, DISPLAY, CHAPTERS, SLEEP, INFO, SETTINGS, QUEUE }
+enum class PlayerSheet { TRACKS, SUBTITLE_STYLE, SPEED, QUALITY, DISPLAY, CHAPTERS, SLEEP, INFO, SETTINGS, QUEUE }
 
 /** Everything the control bars can ask for; the screen decides what each one does. */
 class ControlActions(
@@ -92,7 +94,8 @@ fun PlayerControls(
     canCast: Boolean,
     queue: QueueUi?,
     actions: ControlActions,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    quality: StreamQualities? = null
 ) {
     if (!visible) return
 
@@ -118,7 +121,7 @@ fun PlayerControls(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             SeekBar(progress, actions)
-            BottomButtons(state, hasChapters, sleepTimer, queue, actions)
+            BottomButtons(state, hasChapters, sleepTimer, queue, quality, actions)
         }
     }
 }
@@ -243,10 +246,11 @@ private fun SeekBar(progress: Progress, actions: ControlActions) {
 }
 
 @Composable
-private fun BottomButtons(state: PlayerState, hasChapters: Boolean, sleepTimer: SleepTimerState, queue: QueueUi?, actions: ControlActions) {
+private fun BottomButtons(state: PlayerState, hasChapters: Boolean, sleepTimer: SleepTimerState, queue: QueueUi?, quality: StreamQualities?, actions: ControlActions) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         BarButton(Icons.Rounded.Subtitles, "Pistes") { actions.openSheet(PlayerSheet.TRACKS) }
         BarButton(Icons.Rounded.Speed, if (state.speed == 1f) "Vitesse" else TimeFormat.speed(state.speed)) { actions.openSheet(PlayerSheet.SPEED) }
+        if (quality != null) BarButton(Icons.Rounded.HighQuality, quality.current?.let { "${it}p" } ?: "Qualité") { actions.openSheet(PlayerSheet.QUALITY) }
         BarButton(Icons.Rounded.Fullscreen, "Affichage") { actions.openSheet(PlayerSheet.DISPLAY) }
         if (hasChapters) BarButton(Icons.AutoMirrored.Rounded.ViewList, "Chapitres") { actions.openSheet(PlayerSheet.CHAPTERS) }
         if (queue != null && !queue.isSingle) BarButton(Icons.AutoMirrored.Rounded.PlaylistPlay, "File") { actions.openSheet(PlayerSheet.QUEUE) }

@@ -22,6 +22,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lecteur.core.common.library.LibraryClient
 import com.lecteur.core.data.shared.CopySource
 import com.lecteur.core.data.shared.CopyTarget
 import com.lecteur.core.data.shared.PhoneCopyQueue
@@ -36,6 +37,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -54,13 +56,13 @@ import kotlin.coroutines.coroutineContext
 @Singleton
 class CopyScheduler @Inject constructor(@ApplicationContext private val context: Context) : PhoneCopyQueue {
 
-    override fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget) {
+    override fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget, height: Int?) {
         val requests: List<OneTimeWorkRequest> = fileIds.map { fileId ->
             OneTimeWorkRequestBuilder<CopyWorker>()
                 .setInputData(
                     workDataOf(
                         CopyWorker.SERVER to serverId, CopyWorker.FILE to fileId,
-                        CopyWorker.TREE to target.treeUri, CopyWorker.FOLDER to target.folderId
+                        CopyWorker.TREE to target.treeUri, CopyWorker.FOLDER to target.folderId, CopyWorker.HEIGHT to (height ?: 0)
                     )
                 )
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -102,8 +104,9 @@ class CopyWorker @AssistedInject constructor(
         val fileId = inputData.getLong(FILE, -1)
         val tree = inputData.getString(TREE)?.let(Uri::parse) ?: return Result.success()
         val folderId = inputData.getLong(FOLDER, -1)
+        val height = inputData.getInt(HEIGHT, 0).takeIf { it > 0 }
 
-        val source = shared.copySource(serverId, fileId)
+        val source = shared.copySource(serverId, fileId, height)
             ?: return if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else failed("Le PC ne répond pas ou ce fichier n'y est plus.")
         title = source.title
         runCatching { setForeground(CopyNotifications.progress(applicationContext, id, title, "Préparation…", null)) }
@@ -117,6 +120,8 @@ class CopyWorker @AssistedInject constructor(
             throw e
         } catch (e: SecurityException) {
             failed("Le téléphone refuse l'écriture dans ce dossier. Relancez la copie pour choisir le dossier à nouveau.")
+        } catch (e: ConversionFailed) {
+            failed(e.message ?: "Le PC n'a pas pu convertir ce fichier.")
         } catch (e: IOException) {
             // The network dropped, the PC went to sleep: the next attempt resumes from the partial file
             if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else failed(e.message ?: "La copie a échoué.")
@@ -128,7 +133,8 @@ class CopyWorker @AssistedInject constructor(
         val dir = source.directories.fold(tree.rootId) { parent, name -> tree.directory(parent, name) }
 
         val existing = tree.child(dir, source.fileName)
-        if (existing != null && existing.size == source.sizeBytes) return copySubtitles(tree, dir, source) // copied already
+        // Copied already (a smaller version has no size known in advance: it is there once renamed from .part)
+        if (existing != null && (existing.size == source.sizeBytes || (source.sizeBytes < 0 && existing.size > 0))) return copySubtitles(tree, dir, source)
 
         val partName = source.fileName + ".part"
         val part = tree.child(dir, partName) ?: Tree.Entry(tree.create(dir, partName), 0)
@@ -140,16 +146,15 @@ class CopyWorker @AssistedInject constructor(
     }
 
     private suspend fun download(tree: Tree, part: Tree.Entry, source: CopySource) {
-        var offset = part.size.coerceAtMost(source.sizeBytes)
-        val connection = (URL(source.url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 60_000
-            if (offset > 0) setRequestProperty("Range", "bytes=$offset-")
-        }
+        var offset = if (source.sizeBytes >= 0) part.size.coerceAtMost(source.sizeBytes) else part.size
+        val connection = connectWhenReady(source, offset)
         try {
             val code = connection.responseCode
             if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) throw IOException("Le PC a répondu $code.")
             if (code == HttpURLConnection.HTTP_OK) offset = 0 // range ignored: start over
+            // A smaller version's size is learnt here, once the PC has made it
+            val total = if (source.sizeBytes >= 0) source.sizeBytes
+            else connection.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: connection.contentLengthLong.takeIf { it >= 0 }?.plus(offset) ?: -1
             val mode = if (offset > 0) "wa" else "wt"
             val output = tree.resolver.openOutputStream(tree.uri(part.id), mode) ?: throw IOException("Impossible d'écrire le fichier.")
             output.use { out ->
@@ -166,16 +171,51 @@ class CopyWorker @AssistedInject constructor(
                         val now = System.currentTimeMillis()
                         if (now - lastReport > REPORT_INTERVAL_MS) {
                             lastReport = now
-                            report(written, source.sizeBytes)
+                            report(written, total)
                         }
                     }
-                    if (source.sizeBytes > 0 && written < source.sizeBytes) throw IOException("Copie interrompue.")
+                    if (total > 0 && written < total) throw IOException("Copie interrompue.")
                 }
             }
         } finally {
             connection.disconnect()
         }
     }
+
+    /**
+     * The connection to read the file from. For a smaller version, the PC answers 202 while it converts the file: the
+     * notification shows how far it got, and the question is asked again every few seconds.
+     */
+    private suspend fun connectWhenReady(source: CopySource, offset: Long): HttpURLConnection {
+        while (true) {
+            val connection = (URL(source.url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 60_000
+                if (offset > 0) setRequestProperty("Range", "bytes=$offset-")
+            }
+            when (connection.responseCode) {
+                HttpURLConnection.HTTP_ACCEPTED -> {
+                    val progress = runCatching { connection.inputStream.use { it.readBytes() }.decodeToString() }.getOrNull()?.let(LibraryClient::progressOf)
+                    connection.disconnect()
+                    val detail = when {
+                        progress?.progress != null -> "Conversion en ${source.height}p sur le PC : ${(progress.progress!! * 100).toInt()} %"
+                        progress?.queued == true -> "En attente du PC (une autre conversion d'abord)…"
+                        else -> "Conversion en ${source.height}p sur le PC…"
+                    }
+                    runCatching { setForeground(CopyNotifications.progress(applicationContext, id, title, detail, progress?.progress)) }
+                    delay(CONVERSION_POLL_MS)
+                }
+                HttpURLConnection.HTTP_INTERNAL_ERROR -> {
+                    val message = runCatching { connection.errorStream.use { it.readBytes() }.decodeToString() }.getOrNull()?.let(LibraryClient::errorMessageOf)
+                    connection.disconnect()
+                    throw ConversionFailed(message ?: "Le PC n'a pas pu convertir ce fichier.")
+                }
+                else -> return connection
+            }
+        }
+    }
+
+    private class ConversionFailed(message: String) : Exception(message)
 
     private suspend fun report(written: Long, total: Long) {
         val fraction = if (total > 0) (written.toFloat() / total).coerceIn(0f, 1f) else null
@@ -243,6 +283,8 @@ class CopyWorker @AssistedInject constructor(
         const val FILE = "file"
         const val TREE = "tree"
         const val FOLDER = "folder"
+        const val HEIGHT = "height"
+        private const val CONVERSION_POLL_MS = 5_000L
         private const val MAX_ATTEMPTS = 5
         private const val BUFFER = 256 * 1024
         private const val REPORT_INTERVAL_MS = 1_000L

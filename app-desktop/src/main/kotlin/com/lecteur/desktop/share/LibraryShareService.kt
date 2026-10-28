@@ -15,6 +15,7 @@ import com.lecteur.core.common.library.SeasonDto
 import com.lecteur.core.common.library.SeriesDto
 import com.lecteur.core.common.library.ServedFile
 import com.lecteur.core.common.library.SubtitleDto
+import com.lecteur.core.common.library.Transcoded
 import com.lecteur.core.common.library.WatchDto
 import com.lecteur.core.common.library.WatchReport
 import com.lecteur.core.model.HdrType
@@ -31,6 +32,7 @@ import com.lecteur.desktop.data.LibrarySnapshot
 import com.lecteur.desktop.data.LibraryStore
 import com.lecteur.desktop.data.SettingsStore
 import com.lecteur.desktop.data.SharedDevice
+import com.lecteur.desktop.transcode.Transcoder
 import com.lecteur.desktop.ui.bestAudioLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +75,8 @@ class LibraryShareService(
     private val store: LibraryStore,
     private val settings: SettingsStore,
     private val mdns: Mdns,
-    private val images: ImageCache
+    private val images: ImageCache,
+    private val transcoder: Transcoder
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val pairing = PairingWindow()
@@ -183,13 +186,15 @@ class LibraryShareService(
         override val serverId: String get() = settings.value.serverId
         override val serverName: String get() = settings.value.receiverName
 
-        @Volatile private var cached: Pair<LibrarySnapshot, ByteArray>? = null
+        @Volatile private var cached: Triple<LibrarySnapshot, List<Int>, ByteArray>? = null
 
         override fun catalogJson(): ByteArray {
             val snapshot = store.snapshot.value
-            cached?.takeIf { it.first === snapshot }?.let { return it.second }
-            val bytes = LibraryServer.encodeCatalog(catalog(snapshot))
-            cached = snapshot to bytes
+            // The heights change once the encoder is found, or when the user turns transcoding off
+            val heights = transcoder.heights
+            cached?.takeIf { it.first === snapshot && it.second == heights }?.let { return it.third }
+            val bytes = LibraryServer.encodeCatalog(catalog(snapshot).copy(transcodeHeights = heights, transcoder = transcoder.label))
+            cached = Triple(snapshot, heights, bytes)
             return bytes
         }
 
@@ -227,6 +232,10 @@ class LibraryShareService(
             val path = store.subtitleTracks(fileId).firstOrNull { it.index == index }?.externalPath ?: return null
             return served(File(path), StreamHost.mimeFor(path))
         }
+
+        override fun hls(device: PairedDevice, fileId: Long, height: Int, name: String): ServedFile? = transcoder.hls(device.id, fileId, height, name)
+
+        override fun download(fileId: Long, height: Int): Transcoded? = transcoder.download(fileId, height)
 
         override fun art(key: String): ServedFile? {
             // Keys come from the catalog: after a restart of the PC, a device may ask before reading it again

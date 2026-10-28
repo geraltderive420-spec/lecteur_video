@@ -27,6 +27,13 @@ class ServedFile(val name: String, val mimeType: String, val sizeBytes: Long, pr
     fun open(offset: Long): InputStream = opener(offset)
 }
 
+/** Where a transcoded download stands. */
+sealed interface Transcoded {
+    data class Ready(val file: ServedFile) : Transcoded
+    data class Preparing(val progress: TranscodeProgressDto) : Transcoded
+    data class Failed(val message: String) : Transcoded
+}
+
 /** What the PC shares. Called on the server's worker threads. */
 interface LibraryBackend {
     val serverId: String
@@ -39,6 +46,15 @@ interface LibraryBackend {
     fun stream(fileId: Long): ServedFile?
     fun subtitle(fileId: Long, index: Int): ServedFile?
     fun art(key: String): ServedFile?
+
+    /**
+     * A playlist or segment ([name]) of [fileId] transcoded to [height] lines for [device]. May block while the segment
+     * is being encoded; null when there is no such file, or no transcoding on this PC.
+     */
+    fun hls(device: PairedDevice, fileId: Long, height: Int, name: String): ServedFile? = null
+
+    /** A copy of [fileId] at [height] lines to keep on a device: made once, in the background, then served like a file. */
+    fun download(fileId: Long, height: Int): Transcoded? = null
 }
 
 /** The devices allowed to read the library. Revoking a device is removing it: its signatures stop matching at once. */
@@ -251,10 +267,31 @@ class LibraryServer(
                     if (fileId != null && index != null) backend.subtitle(fileId, index) else null
                 }
                 LibraryUrls.KIND_ART -> backend.art(res.id)
+                LibraryUrls.KIND_HLS -> {
+                    val (fileId, height) = LibraryUrls.splitTranscoded(res.id) ?: return respond(output, 404, "Not Found")
+                    if (res.name == LibraryUrls.HLS_PLAYLIST) devices.seen(device, address)
+                    backend.hls(device, fileId, height, res.name ?: LibraryUrls.HLS_PLAYLIST)
+                }
+                LibraryUrls.KIND_DOWNLOAD -> {
+                    val (fileId, height) = LibraryUrls.splitTranscoded(res.id) ?: return respond(output, 404, "Not Found")
+                    when (val state = backend.download(fileId, height)) {
+                        is Transcoded.Ready -> state.file
+                        is Transcoded.Preparing -> return accepted(state.progress)
+                        is Transcoded.Failed -> return error(output, 500, "Internal Server Error", "transcode", state.message)
+                        null -> null
+                    }
+                }
                 else -> null
             } ?: return respond(output, 404, "Not Found")
             if (res.kind == LibraryUrls.KIND_STREAM) devices.seen(device, address)
             serveFile(file, cacheable = res.kind == LibraryUrls.KIND_ART)
+        }
+
+        /** "Not ready yet, ask again": the device's download waits on this. */
+        private fun accepted(progress: TranscodeProgressDto) {
+            val payload = wire.encodeToString(TranscodeProgressDto.serializer(), progress).toByteArray()
+            writeHead(output, 202, "Accepted", mapOf("Content-Type" to JSON, "Content-Length" to payload.size.toString(), "Retry-After" to "5", "Cache-Control" to "no-store"))
+            if (request.method != "HEAD") output.write(payload)
         }
 
         private fun serveFile(file: ServedFile, cacheable: Boolean) {

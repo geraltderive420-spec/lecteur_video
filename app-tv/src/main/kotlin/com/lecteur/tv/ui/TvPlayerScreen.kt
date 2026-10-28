@@ -37,6 +37,8 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Toc
 import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.HighQuality
+import com.lecteur.core.common.library.TranscodeLevels
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
@@ -93,7 +95,7 @@ private const val SEEK_OVERLAY_MS = 2_500L
 
 /** The menus of the player, the phone's sheets for the remote. */
 private enum class TvPanel(val title: String) {
-    AUDIO("Audio"), SUBTITLES("Sous-titres"), SPEED("Vitesse"), DISPLAY("Format d'image"), DELAYS("Décalages"),
+    AUDIO("Audio"), SUBTITLES("Sous-titres"), SPEED("Vitesse"), QUALITY("Qualité"), DISPLAY("Format d'image"), DELAYS("Décalages"),
     STYLE("Style des sous-titres"), SOUND("Son"), CHAPTERS("Chapitres"), SLEEP("Minuterie"), INFO("Informations")
 }
 
@@ -122,7 +124,10 @@ fun TvPlayerScreen(viewModel: TvReceiverViewModel) {
     val screenFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
 
-    LaunchedEffect(player, state.status) { viewModel.loadChapters(player) }
+    LaunchedEffect(player, state.status) {
+        viewModel.loadChapters(player)
+        viewModel.refreshQuality(player)
+    }
     LaunchedEffect(Unit) { screenFocus.requestFocus() }
     // The clock of the auto-hide and of the seek overlay
     LaunchedEffect(Unit) {
@@ -279,6 +284,7 @@ private fun ControlBar(
     onOpen: (TvPanel) -> Unit, onUsed: () -> Unit
 ) {
     val chapters by viewModel.chapters.collectAsStateWithLifecycle()
+    val quality by viewModel.quality.collectAsStateWithLifecycle()
     data class Control(val label: String, val icon: ImageVector, val action: () -> Unit)
     val controls = buildList {
         add(Control("−10 s", Icons.Rounded.Replay10) { player.seekBy(-SEEK_STEP_MS) })
@@ -289,6 +295,7 @@ private fun ControlBar(
         add(Control("Audio", Icons.Rounded.Audiotrack) { onOpen(TvPanel.AUDIO) })
         add(Control("Sous-titres", Icons.Rounded.ClosedCaption) { onOpen(TvPanel.SUBTITLES) })
         add(Control("Vitesse ${speedLabel(state.speed)}", Icons.Rounded.Speed) { onOpen(TvPanel.SPEED) })
+        quality?.let { q -> add(Control(q.current?.let { "Qualité ${it}p" } ?: "Qualité", Icons.Rounded.HighQuality) { onOpen(TvPanel.QUALITY) }) }
         add(Control("Image", Icons.Rounded.AspectRatio) { onOpen(TvPanel.DISPLAY) })
         add(Control("Décalages", Icons.Rounded.Sync) { onOpen(TvPanel.DELAYS) })
         add(Control("Style", Icons.Rounded.TextFields) { onOpen(TvPanel.STYLE) })
@@ -423,6 +430,15 @@ private fun Panel(panel: TvPanel, viewModel: TvReceiverViewModel, player: Media3
                     val chapters = viewModel.chapters.value
                     itemsIndexed(chapters) { i, c ->
                         Choice(i, c.title ?: "Chapitre ${c.index + 1}", false, clock(c.startMs)) { player.seekTo(c.startMs); onClose() }
+                    }
+                }
+
+                TvPanel.QUALITY -> {
+                    val q = viewModel.quality.value
+                    item { Choice(0, "Originale", q?.current == null, "Le fichier tel quel, sans conversion") { viewModel.setQuality(0); onClose() } }
+                    itemsIndexed(q?.heights.orEmpty()) { i, height ->
+                        val mbps = "%.1f".format(Locale.FRANCE, TranscodeLevels.videoKbps(height) / 1000f)
+                        Choice(i + 1, "${height}p", q?.current == height, "Environ $mbps Mb/s, converti par le PC") { viewModel.setQuality(height); onClose() }
                     }
                 }
 

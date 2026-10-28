@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lecteur.desktop.background.Autostart
 import com.lecteur.desktop.data.SharedDevice
+import com.lecteur.desktop.transcode.TranscoderState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -98,6 +99,31 @@ fun ShareScreen() {
                             Button(onClick = { a.services.share.openPairing() }) { Text("Associer un appareil") }
                         }
                     }
+                }
+            }
+
+            val transcoder by a.services.transcoder.state.collectAsState()
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Versions réduites (transcodage)", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                when (val t = transcoder) {
+                                    TranscoderState.Detecting -> "Recherche de l'encodeur…"
+                                    is TranscoderState.Ready -> "Encodeur : ${t.encoder.label}${if (t.encoder.hardware) " (carte graphique)" else ""}"
+                                    TranscoderState.NoFfmpeg -> "Indisponible : ffmpeg est absent de cette installation"
+                                    TranscoderState.NoEncoder -> "Indisponible : ffmpeg ne peut encoder sur ce PC"
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(settings.transcodingEnabled, { on -> a.services.settings.update { it.copy(transcodingEnabled = on) } }, enabled = transcoder is TranscoderState.Ready)
+                    }
+                    Text(
+                        "Les appareils peuvent demander un film en 1080p, 720p, 480p ou 360p : pour regarder sur un réseau lent, ou garder une copie plus légère sur le téléphone. Ce PC convertit la vidéo pendant la lecture (H.264, HDR converti en SDR).",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

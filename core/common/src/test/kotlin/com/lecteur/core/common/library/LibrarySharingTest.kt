@@ -81,6 +81,18 @@ class LibrarySecurityTest {
         assertThat(LibraryUrls.parseStream("http://192.168.1.10:8080/stream/abc/file.mkv")).isNull()
     }
 
+    @Test fun `transcoded urls are recognised as the same file`() {
+        val creds = DeviceCredentials(LibrarySignature.newId(), LibrarySignature.newSecret())
+        val url = LibraryUrls.hls("http://192.168.1.10:47810", creds, 42, 720)
+        assertThat(url).endsWith("/hls/42-720/index.m3u8")
+        assertThat(LibraryUrls.parseStream(url)).isEqualTo(LibraryUrls.StreamRef("http://192.168.1.10:47810", creds.deviceId, 42, 720))
+        // A segment shares the playlist's signed prefix
+        val segment = url.replace("index.m3u8", "seg12.ts")
+        assertThat(LibraryUrls.parse(java.net.URI(segment).rawPath)?.name).isEqualTo("seg12.ts")
+        assertThat(LibraryUrls.splitTranscoded("42-0")).isNull()
+        assertThat(LibraryUrls.splitTranscoded("42")).isNull()
+    }
+
     @Test fun `advert round trip`() {
         val advert = LibraryAdvert("PC Salon", "abc123", 47810)
         assertThat(LibraryAdvert.parse(advert.serviceName(), 47810, advert.toTxt())).isEqualTo(advert)
@@ -113,6 +125,10 @@ class LibraryServerTest {
         } else null
         override fun subtitle(fileId: Long, index: Int) = if (fileId == 70L && index == 0) ServedFile("a.srt", "application/x-subrip", 3) { ByteArrayInputStream("abc".toByteArray()) } else null
         override fun art(key: String) = if (key == "p1") ServedFile("p.jpg", "image/jpeg", 2) { ByteArrayInputStream(byteArrayOf(1, 2)) } else null
+        override fun hls(device: PairedDevice, fileId: Long, height: Int, name: String) =
+            if (fileId == 70L) ServedFile(name, "application/vnd.apple.mpegurl", name.length.toLong()) { ByteArrayInputStream(name.toByteArray()) } else null
+        var downloadState: Transcoded? = Transcoded.Preparing(TranscodeProgressDto(0.5f))
+        override fun download(fileId: Long, height: Int) = if (fileId == 70L) downloadState else null
     }
     private val pairing = PairingWindow()
     private lateinit var server: LibraryServer
@@ -217,6 +233,25 @@ class LibraryServerTest {
 
         devices.map.clear()
         assertThat((URL(url).openConnection() as HttpURLConnection).responseCode).isEqualTo(403)
+    }
+
+    @Test fun `transcoded stream and download`() {
+        val client = paired()
+        val file = client.catalog().movies.single().files.single()
+        val playlist = client.hlsUrl(file, 720)
+        assertThat((URL(playlist).openConnection() as HttpURLConnection).inputStream.readBytes().decodeToString()).isEqualTo("index.m3u8")
+        assertThat((URL(playlist.replace("index.m3u8", "seg3.ts")).openConnection() as HttpURLConnection).inputStream.readBytes().decodeToString()).isEqualTo("seg3.ts")
+        // The signature names the height too
+        assertThat((URL(playlist.replace("/70-720/", "/70-1080/")).openConnection() as HttpURLConnection).responseCode).isEqualTo(403)
+
+        val download = client.downloadUrl(file, 480, "alien [480p].mkv")
+        val waiting = URL(download).openConnection() as HttpURLConnection
+        assertThat(waiting.responseCode).isEqualTo(202)
+        assertThat(LibraryServer.wire.decodeFromString(TranscodeProgressDto.serializer(), waiting.inputStream.readBytes().decodeToString()).progress).isEqualTo(0.5f)
+        backend.downloadState = Transcoded.Ready(backend.stream(70)!!)
+        val ready = (URL(download).openConnection() as HttpURLConnection).apply { setRequestProperty("Range", "bytes=10-") }
+        assertThat(ready.responseCode).isEqualTo(206)
+        assertThat(ready.inputStream.readBytes()).isEqualTo(movieBytes.copyOfRange(10, movieBytes.size))
     }
 
     @Test fun `addresses outside the local network get no answer`() {

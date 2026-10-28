@@ -67,6 +67,8 @@ Dans la bibliothèque : Ctrl+F lance une recherche, Ctrl+O ouvre un fichier, Alt
 
 Prérequis : JDK 17 et VLC 3 (64 bits) installé sur la machine de build. Ses fichiers sont copiés dans l'application ; à défaut, indiquez son dossier avec la variable `VLC_DIR`.
 
+ffmpeg (`ffmpeg.exe`, par exemple la build « essentials » de gyan.dev) est copié aussi, depuis le dossier indiqué par `FFMPEG_DIR` ou à défaut depuis le PATH : il fabrique les versions réduites (1080p à 360p) que demandent les téléphones et TV, avec la carte graphique quand elle le permet (NVENC, Quick Sync, AMF), sinon le processeur (x264). Sans lui, l'application fonctionne, sans transcodage.
+
 ```bash
 gradlew.bat :app-desktop:packageExe          # installateur .exe
 gradlew.bat :app-desktop:createDistributable # version portable (dossier)

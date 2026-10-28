@@ -10,6 +10,7 @@ import com.lecteur.core.data.settings.ImageCacheController
 import com.lecteur.core.data.settings.LibrarySettings
 import com.lecteur.core.data.settings.LibrarySettingsRepository
 import com.lecteur.core.data.settings.LibraryViewRepository
+import com.lecteur.core.data.shared.SharedLibraryRepository
 import com.lecteur.core.model.AppearanceSettings
 import com.lecteur.core.model.HomeLayout
 import com.lecteur.core.model.HomeRow
@@ -39,7 +40,9 @@ data class SettingsUi(
     val homeLayout: HomeLayout = HomeLayout.DEFAULT,
     val folderCount: Int = 0,
     val reviewCount: Int = 0,
-    val metadataConfigured: Boolean = true
+    val metadataConfigured: Boolean = true,
+    /** Height the PCs' files are brought down to while they play here; 0 = the original. */
+    val streamHeight: Int = 0
 )
 
 @HiltViewModel
@@ -52,7 +55,8 @@ class SettingsViewModel @Inject constructor(
     private val imageCache: ImageCacheController,
     folders: FolderRepository,
     reviews: ReviewRepository,
-    provider: MetadataProvider
+    provider: MetadataProvider,
+    private val shared: SharedLibraryRepository
 ) : ViewModel() {
 
     private data class Basics(val library: LibrarySettings, val player: PlayerSettings, val appearance: AppearanceSettings)
@@ -63,8 +67,9 @@ class SettingsViewModel @Inject constructor(
     private val layout = combine(views.prefs(LibrarySection.MOVIES).map { it.posterSize }, homeLayout.layout, ::Layout)
     private val counts = combine(folders.folders.map { it.size }, reviews.count, ::Counts)
 
-    val state: StateFlow<SettingsUi> = combine(basics, layout, counts) { basics, layout, counts ->
+    val state: StateFlow<SettingsUi> = combine(basics, layout, counts, shared.streamHeight) { basics, layout, counts, streamHeight ->
         SettingsUi(
+            streamHeight = streamHeight,
             library = basics.library,
             player = basics.player,
             appearance = basics.appearance,
@@ -104,6 +109,8 @@ class SettingsViewModel @Inject constructor(
     // endregion
 
     fun updatePlayer(transform: (PlayerSettings) -> PlayerSettings) = launch { playerSettings.update(transform) }
+
+    fun setStreamHeight(height: Int) = shared.setStreamHeight(height)
 
     // region appearance and home
 

@@ -204,7 +204,8 @@ private fun PlayerContent(engine: Media3PlayerEngine, viewModel: PlayerViewModel
                 canEnterPip = host.canEnterPictureInPicture,
                 canCast = ui.castFileId != null,
                 queue = ui.queue,
-                actions = actions
+                actions = actions,
+                quality = ui.quality
             )
 
             UnlockButton(

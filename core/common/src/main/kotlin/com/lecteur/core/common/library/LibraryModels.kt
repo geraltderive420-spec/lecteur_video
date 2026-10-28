@@ -164,7 +164,19 @@ data class Catalog(
     val serverName: String,
     val generatedAtMs: Long,
     val movies: List<MovieDto> = emptyList(),
-    val series: List<SeriesDto> = emptyList()
+    val series: List<SeriesDto> = emptyList(),
+    /** Heights the PC can bring a file down to ([LibraryUrls.hls], [LibraryUrls.download]); empty: originals only. */
+    val transcodeHeights: List<Int> = emptyList(),
+    /** How the PC transcodes, for the device's settings: "NVIDIA NVENC", "Processeur"... */
+    val transcoder: String? = null
+)
+
+/** A transcoded download not ready yet: the PC answers 202 with this, the device asks again a bit later. */
+@Serializable
+data class TranscodeProgressDto(
+    /** 0..1, null while the PC has not started on it (another one first). */
+    val progress: Float? = null,
+    val queued: Boolean = false
 )
 
 /** `POST /api/v1/watch`: where a device stopped, so the PC (and every other device) resumes at the same place. */
@@ -179,6 +191,22 @@ data class WatchReport(
     val audioDelayMs: Long = 0,
     val subtitleDelayMs: Long = 0
 )
+
+/** Bitrates of the smaller versions a PC makes, known to both sides: the PC encodes at them, devices estimate sizes from them. */
+object TranscodeLevels {
+    /** Kbit/s of the picture at that height (H.264). */
+    fun videoKbps(height: Int): Int = when {
+        height >= 1080 -> 6_000
+        height >= 720 -> 3_500
+        height >= 480 -> 1_600
+        else -> 900
+    }
+
+    const val AUDIO_KBPS = 160
+
+    /** About how big [durationMs] is at [height] (one audio track). */
+    fun estimatedBytes(height: Int, durationMs: Long): Long = (videoKbps(height) + AUDIO_KBPS) * 1000L / 8 * (durationMs / 1000)
+}
 
 /** The file to play for an episode or a movie: available first, then the sharpest. */
 fun List<FileDto>.best(): FileDto? =

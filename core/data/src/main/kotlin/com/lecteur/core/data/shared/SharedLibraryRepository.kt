@@ -9,6 +9,7 @@ import com.lecteur.core.common.library.LibraryUrls
 import com.lecteur.core.common.library.PairedServer
 import com.lecteur.core.common.library.PairedServers
 import com.lecteur.core.common.library.ServerInfo
+import com.lecteur.core.common.library.TranscodeLevels
 import com.lecteur.core.common.library.WatchDto
 import com.lecteur.core.common.library.WatchReport
 import com.lecteur.core.common.library.best
@@ -48,6 +49,9 @@ data class SharedFileDescription(
     val subtitles: List<ExternalSubtitleSource>
 )
 
+/** The qualities a PC offers for a file being played: smaller [heights] (tallest first), and the one playing (null: original). */
+data class StreamQualities(val heights: List<Int>, val current: Int?)
+
 /** A catalog being loaded, loaded, or failed (with a message the screen shows as is). */
 sealed interface CatalogState {
     data object Loading : CatalogState
@@ -80,6 +84,42 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
     val catalogs: StateFlow<Map<String, CatalogState>> = _catalogs.asStateFlow()
 
     fun server(serverId: String): PairedServer? = _servers.value.firstOrNull { it.serverId == serverId }
+
+    private val _streamHeight = MutableStateFlow(prefs.getInt(KEY_STREAM_HEIGHT, 0))
+
+    /** The height files of a PC are brought down to while they play here; 0 plays the original file. */
+    val streamHeight: StateFlow<Int> = _streamHeight.asStateFlow()
+
+    fun setStreamHeight(height: Int) {
+        _streamHeight.value = height
+        prefs.edit().putInt(KEY_STREAM_HEIGHT, height).apply()
+    }
+
+    /**
+     * The height the PC transcodes [file] to for playback, or null for the original: the setting, when that PC can
+     * transcode and the file is taller.
+     */
+    fun playHeight(serverId: String, file: FileDto): Int? {
+        val wanted = _streamHeight.value.takeIf { it > 0 } ?: return null
+        val height = catalog(serverId)?.transcodeHeights.orEmpty().filter { it <= wanted }.maxOrNull() ?: return null
+        return height.takeIf { (file.height ?: Int.MAX_VALUE) > it }
+    }
+
+    /** What a copy of [fileIds] can be: the originals, and each smaller height that saves room (estimated sizes). */
+    fun copyOptions(serverId: String, fileIds: List<Long>): List<CopyOption> {
+        val files = fileIds.mapNotNull { file(serverId, it) }
+        val original = CopyOption(null, files.sumOf { it.sizeBytes })
+        val tallest = files.maxOfOrNull { it.height ?: 0 } ?: 0
+        val smaller = catalog(serverId)?.transcodeHeights.orEmpty().filter { it < tallest }.sortedDescending().mapNotNull { h ->
+            val bytes = files.sumOf { f ->
+                val duration = f.durationMs
+                if ((f.height ?: 0) > h && duration != null) TranscodeLevels.estimatedBytes(h, duration) else f.sizeBytes
+            }
+            // A "smaller" version barely smaller than the original (a lean HEVC file) is not worth the wait
+            CopyOption(h, bytes).takeIf { bytes < original.bytes * 0.8 }
+        }
+        return listOf(original) + smaller
+    }
 
     /** The public info of a PC at [baseUrl], to check an address typed by hand before asking for the code. */
     suspend fun probe(baseUrl: String): ServerInfo = withContext(Dispatchers.IO) { LibraryClient(baseUrl).info() }
@@ -148,7 +188,10 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
         else -> null
     }
 
-    fun streamUrl(serverId: String, file: FileDto): String? = server(serverId)?.let { client(it).streamUrl(file) }
+    fun streamUrl(serverId: String, file: FileDto): String? = server(serverId)?.let { server ->
+        val client = client(server)
+        playHeight(serverId, file)?.let { client.hlsUrl(file, it) } ?: client.streamUrl(file)
+    }
 
     fun artUrl(serverId: String, key: String?): String? = server(serverId)?.let { client(it).artUrl(key) }
 
@@ -233,18 +276,22 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
      * Where a file of the PC goes on the phone, under the library folder of its kind: "Title (year)/file.mkv" for a film,
      * "Series/Saison 01/file.mkv" for an episode, the PC's subtitle files next to it under the video's name.
      */
-    suspend fun copySource(serverId: String, fileId: Long): CopySource? {
+    suspend fun copySource(serverId: String, fileId: Long, height: Int? = null): CopySource? {
         val catalog = loadCatalog(serverId) ?: return null
         val server = server(serverId) ?: return null
         val client = client(server)
         fun source(file: FileDto, kind: MediaKind, title: String, directories: List<String>): CopySource {
-            val base = file.fileName.substringBeforeLast('.')
+            // A smaller version only for a file taller than that, and from a PC that makes them
+            val smaller = height?.takeIf { it in catalog.transcodeHeights && (file.height ?: Int.MAX_VALUE) > it }
+            val base = file.fileName.substringBeforeLast('.') + (smaller?.let { " [${it}p]" } ?: "")
+            val name = CopyPaths.safeName(if (smaller != null) "$base.mkv" else file.fileName)
             val subtitles = file.subtitles.map { s ->
                 val url = client.subtitleUrl(file, s)
                 val tag = listOfNotNull(s.language, if (s.forced) "forced" else null).joinToString(".").ifEmpty { "${s.index}" }
                 CopySource.Subtitle(url, CopyPaths.safeName("$base.$tag.${url.substringAfterLast('.')}"))
             }
-            return CopySource(client.streamUrl(file), kind, title, directories.map(CopyPaths::safeName), CopyPaths.safeName(file.fileName), file.sizeBytes, subtitles)
+            val url = if (smaller != null) client.downloadUrl(file, smaller, name) else client.streamUrl(file)
+            return CopySource(url, kind, title, directories.map(CopyPaths::safeName), name, if (smaller != null) -1 else file.sizeBytes, subtitles, smaller)
         }
         catalog.movies.forEach { m ->
             m.files.firstOrNull { it.id == fileId }?.let {
@@ -264,6 +311,28 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
     }
 
     // region playback (called by the player through PlaybackRequestFactory and the watch store)
+
+    /** The player's "Qualité" choices for [uri]; null when it is not a PC file, or the PC cannot make it smaller. */
+    fun qualities(uri: String): StreamQualities? {
+        val ref = LibraryUrls.parseStream(uri) ?: return null
+        val server = serverFor(ref) ?: return null
+        val file = file(server.serverId, ref.fileId) ?: return null
+        val heights = catalog(server.serverId)?.transcodeHeights.orEmpty().filter { (file.height ?: Int.MAX_VALUE) > it }.sortedDescending()
+        return if (heights.isEmpty()) null else StreamQualities(heights, ref.height)
+    }
+
+    /**
+     * The PC file behind [uri] at another quality: [height] null for the original, or the original anyway when the file
+     * is not taller than that. Null when [uri] is not a PC file.
+     */
+    fun streamUrlAt(uri: String, height: Int?): String? {
+        val ref = LibraryUrls.parseStream(uri) ?: return null
+        val server = serverFor(ref) ?: return null
+        val file = file(server.serverId, ref.fileId) ?: return null
+        val client = client(server)
+        val smaller = height?.takeIf { it in catalog(server.serverId)?.transcodeHeights.orEmpty() && (file.height ?: Int.MAX_VALUE) > it }
+        return smaller?.let { client.hlsUrl(file, it) } ?: client.streamUrl(file)
+    }
 
     fun isShared(uri: String): Boolean = LibraryUrls.parseStream(uri)?.let { ref -> serverFor(ref) != null } == true
 
@@ -360,6 +429,7 @@ class SharedLibraryRepository @Inject constructor(@ApplicationContext context: C
     private companion object {
         const val PREFS = "shared_libraries"
         const val KEY_SERVERS = "servers"
+        const val KEY_STREAM_HEIGHT = "stream_height"
         const val WATCH_TIMEOUT_MS = 2_500L
         const val REPORT_INTERVAL_MS = 10_000L
     }

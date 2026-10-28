@@ -115,6 +115,7 @@ fun SettingsScreen(
                 ActionSetting("Sous-titres", subtitleModeLabel(ui.player.subtitleMode)) { dialog = SettingsDialog.SUBTITLE_MODE }
                 ActionSetting("Décodage vidéo", decoderLabel(ui.player.decoderMode)) { dialog = SettingsDialog.DECODER }
                 ActionSetting("Sortie audio numérique (passthrough)", passthroughLabel(ui.player.passthrough)) { dialog = SettingsDialog.PASSTHROUGH }
+                ActionSetting("Qualité depuis un PC", streamHeightLabel(ui.streamHeight)) { dialog = SettingsDialog.STREAM_HEIGHT }
                 SwitchSetting("Tunneling", "Peut améliorer la synchronisation sur certains téléviseurs", ui.player.tunneling) { v -> viewModel.updatePlayer { it.copy(tunneling = v) } }
                 SwitchSetting("Mode nuit", "Réduit l'écart entre dialogues et explosions", ui.player.nightMode) { v -> viewModel.updatePlayer { it.copy(nightMode = v) } }
                 SwitchSetting("Lecture en arrière-plan", "Le son continue quand vous quittez l'application", ui.player.backgroundAudio) { v -> viewModel.updatePlayer { it.copy(backgroundAudio = v) } }
@@ -215,8 +216,10 @@ private fun HomeRowSetting(row: HomeRow, visible: Boolean, canMoveUp: Boolean, c
 
 private enum class SettingsDialog {
     SCAN_INTERVAL, METADATA_LANGUAGE, SEEK_STEP, LONG_PRESS, COUNTDOWN, AUDIO_LANGUAGES, SUBTITLE_LANGUAGES, SUBTITLE_MODE,
-    DECODER, PASSTHROUGH, THEME, POSTER_SIZE, CLEAR_CACHE
+    DECODER, PASSTHROUGH, STREAM_HEIGHT, THEME, POSTER_SIZE, CLEAR_CACHE
 }
+
+private val STREAM_HEIGHTS = listOf(0, 1080, 720, 480, 360)
 
 @Composable
 private fun SettingsDialogs(dialog: SettingsDialog?, ui: SettingsUi, vm: SettingsViewModel, onDismiss: () -> Unit) {
@@ -245,6 +248,7 @@ private fun SettingsDialogs(dialog: SettingsDialog?, ui: SettingsUi, vm: Setting
         SettingsDialog.SUBTITLE_MODE -> SingleChoiceDialog("Sous-titres", SubtitleMode.entries, ui.player.subtitleMode, ::subtitleModeLabel, { v -> vm.updatePlayer { it.copy(subtitleMode = v) } }, onDismiss)
         SettingsDialog.DECODER -> SingleChoiceDialog("Décodage vidéo", DecoderMode.entries, ui.player.decoderMode, ::decoderLabel, { v -> vm.updatePlayer { it.copy(decoderMode = v) } }, onDismiss)
         SettingsDialog.PASSTHROUGH -> SingleChoiceDialog("Sortie audio numérique", PassthroughMode.entries, ui.player.passthrough, ::passthroughLabel, { v -> vm.updatePlayer { it.copy(passthrough = v) } }, onDismiss)
+        SettingsDialog.STREAM_HEIGHT -> SingleChoiceDialog("Qualité depuis un PC", STREAM_HEIGHTS, ui.streamHeight, ::streamHeightLabel, vm::setStreamHeight, onDismiss)
         SettingsDialog.THEME -> SingleChoiceDialog("Thème", ThemeMode.entries, ui.appearance.themeMode, ::themeLabel, vm::setThemeMode, onDismiss)
         SettingsDialog.POSTER_SIZE -> SingleChoiceDialog("Taille des affiches", PosterSize.entries, ui.posterSize, { it.label }, vm::setPosterSize, onDismiss)
         SettingsDialog.CLEAR_CACHE -> AlertDialog(
@@ -286,6 +290,15 @@ internal fun decoderLabel(mode: DecoderMode): String = when (mode) {
 internal fun passthroughLabel(mode: PassthroughMode): String = when (mode) {
     PassthroughMode.AUTO -> "Automatique : flux direct quand la sortie le permet"
     PassthroughMode.OFF -> "Désactivé : toujours décoder"
+}
+
+/** The PC converts the file while it plays: for a slow Wi-Fi or mobile data, at the cost of some picture quality. */
+internal fun streamHeightLabel(height: Int): String = when (height) {
+    0 -> "Originale (le fichier tel quel)"
+    1080 -> "1080p · environ 6 Mb/s"
+    720 -> "720p · environ 3,5 Mb/s"
+    480 -> "480p · environ 1,6 Mb/s"
+    else -> "${height}p · environ 1 Mb/s"
 }
 
 internal fun themeLabel(mode: ThemeMode): String = when (mode) {

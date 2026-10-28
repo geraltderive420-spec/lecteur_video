@@ -21,18 +21,25 @@ data class CopySource(
     val title: String,
     val directories: List<String>,
     val fileName: String,
+    /** -1 for a smaller version: the PC makes it first, its size is known once it is ready. */
     val sizeBytes: Long,
-    val subtitles: List<Subtitle>
+    val subtitles: List<Subtitle>,
+    /** The height of the smaller version the PC makes; null copies the original file. */
+    val height: Int? = null
 ) {
     data class Subtitle(val url: String, val fileName: String)
 }
+
+/** One choice of the "copy" dialog: the original files ([height] null) or a smaller version, and about how big. */
+data class CopyOption(val height: Int?, val bytes: Long)
 
 /** A folder of the phone a copy writes into: the tree it writes in, and the library folder to scan afterwards. */
 data class CopyTarget(val treeUri: String, val folderId: Long, val label: String)
 
 /** Runs the copies in the background, one after the other (implemented with WorkManager by the scanner module). */
 interface PhoneCopyQueue {
-    fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget)
+    /** [height]: a smaller version made by the PC; null for the original files. */
+    fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget, height: Int? = null)
 }
 
 object CopyPaths {
@@ -53,8 +60,12 @@ object CopyPaths {
 class PhoneCopies @Inject constructor(
     @ApplicationContext private val context: Context,
     private val folders: FolderRepository,
-    private val queue: PhoneCopyQueue
+    private val queue: PhoneCopyQueue,
+    private val shared: SharedLibraryRepository
 ) {
+    /** The originals, then the smaller versions worth making; a single option means there is nothing to choose. */
+    fun options(serverId: String, fileIds: List<Long>): List<CopyOption> = shared.copyOptions(serverId, fileIds)
+
     /** The folder the files of [kind] go to, when the app may write in it; null asks for [pickHint] first. */
     suspend fun target(kind: MediaKind): CopyTarget? {
         val writable = context.contentResolver.persistedUriPermissions.filter { it.isWritePermission }.map { it.uri.toString() }
@@ -92,8 +103,8 @@ class PhoneCopies @Inject constructor(
         }
     }
 
-    fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget) {
-        if (fileIds.isNotEmpty()) queue.enqueue(serverId, fileIds, target)
+    fun enqueue(serverId: String, fileIds: List<Long>, target: CopyTarget, height: Int? = null) {
+        if (fileIds.isNotEmpty()) queue.enqueue(serverId, fileIds, target, height)
     }
 
     /** Folders of that kind first, then the "Mixte" ones, which take everything. */

@@ -66,6 +66,12 @@ class LibraryClient(
 
     fun streamUrl(file: FileDto): String = LibraryUrls.stream(baseUrl, requireCredentials(), file.id, file.fileName)
 
+    /** The file brought down to [height] lines by the PC as it plays; for a smaller file, not for a format the device lacks. */
+    fun hlsUrl(file: FileDto, height: Int): String = LibraryUrls.hls(baseUrl, requireCredentials(), file.id, height)
+
+    /** A copy of the file at [height] lines: 202 + [TranscodeProgressDto] until the PC has made it, then the file. */
+    fun downloadUrl(file: FileDto, height: Int, fileName: String): String = LibraryUrls.download(baseUrl, requireCredentials(), file.id, height, fileName)
+
     fun subtitleUrl(file: FileDto, subtitle: SubtitleDto): String =
         LibraryUrls.subtitle(baseUrl, requireCredentials(), file.id, subtitle.index, "sub." + extensionOf(subtitle.mimeType))
 
@@ -144,6 +150,15 @@ class LibraryClient(
 
     private fun requireCredentials(): DeviceCredentials =
         credentials ?: throw LibraryException(LibraryException.Kind.UNAUTHORIZED, "Cet appareil n'est pas associé à ce PC.")
+
+    companion object {
+        /** The body of a 202 from a [downloadUrl] (the PC is still converting); null when it is not one. */
+        fun progressOf(body: String): TranscodeProgressDto? =
+            runCatching { LibraryServer.wire.decodeFromString(TranscodeProgressDto.serializer(), body) }.getOrNull()
+
+        /** The message of an error answer, to show as is. */
+        fun errorMessageOf(body: String): String? = runCatching { LibraryServer.wire.decodeFromString(ErrorDto.serializer(), body).message }.getOrNull()
+    }
 
     private fun extensionOf(mime: String): String = when (mime) {
         "application/x-subrip" -> "srt"

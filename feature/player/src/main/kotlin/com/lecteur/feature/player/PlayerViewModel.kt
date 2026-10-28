@@ -7,6 +7,8 @@ import androidx.media3.common.util.UnstableApi
 import com.lecteur.core.data.playback.PlaybackQueueStore
 import com.lecteur.core.data.playback.PlaybackRequestFactory
 import com.lecteur.core.data.playback.PreparedPlayback
+import com.lecteur.core.data.shared.SharedLibraryRepository
+import com.lecteur.core.data.shared.StreamQualities
 import com.lecteur.core.model.HdrType
 import com.lecteur.core.model.PlayPlan
 import com.lecteur.core.player.chapters.ChapterNavigator
@@ -92,7 +94,9 @@ data class PlayerUiState(
     /** The user dismissed the "next episode" card: the file ends without moving on. */
     val upNextCancelled: Boolean = false,
     /** Library file behind the current playback, null for a bare URI: only a library file can be sent to a TV. */
-    val castFileId: Long? = null
+    val castFileId: Long? = null,
+    /** A PC's file the PC can bring down to a smaller height while it plays; null for anything else. */
+    val quality: StreamQualities? = null
 )
 
 @UnstableApi
@@ -103,7 +107,8 @@ class PlayerViewModel @Inject constructor(
     private val settingsRepository: PlayerSettingsRepository,
     private val watchStateStore: WatchStateStore,
     private val probe: MediaProbe,
-    private val queueStore: PlaybackQueueStore
+    private val queueStore: PlaybackQueueStore,
+    private val shared: SharedLibraryRepository
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(PlayerUiState())
@@ -121,6 +126,10 @@ class PlayerViewModel @Inject constructor(
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     private var currentUri: String? = null
+
+    /** The quality picked in the player (0: original), kept for the next files of the queue; null follows the URIs as planned. */
+    private var pickedHeight: Int? = null
+    private var openedUri: String? = null
     private var currentMediaFileId: Long? = null
     private var queue: PlaybackQueue? = null
     private var prepared: PreparedPlayback? = null
@@ -151,7 +160,9 @@ class PlayerViewModel @Inject constructor(
             // A recreated screen finds the plan already taken: what plays now stays. A fresh process falls through to the uri.
             if (currentUri != null) return
         }
-        if (uri == currentUri) return
+        // After a change of quality the URI playing is not the one the screen was opened with
+        if (uri == currentUri || uri == openedUri) return
+        openedUri = uri
         queue = null
         publishQueue()
         currentUri = uri
@@ -168,13 +179,30 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun playItem(item: QueueItem, autoResume: Boolean) {
-        currentUri = item.uri
+        val uri = pickedHeight?.let { shared.streamUrlAt(item.uri, it.takeIf { h -> h > 0 }) } ?: item.uri
+        currentUri = uri
         currentMediaFileId = item.mediaFileId
         _ui.update { it.copy(upNextCancelled = false) }
-        viewModelScope.launch { start(item.uri, item.mediaFileId, autoResume) }
+        viewModelScope.launch { start(uri, item.mediaFileId, autoResume) }
     }
 
-    private suspend fun start(uri: String, mediaFileId: Long? = null, autoResume: Boolean = false) {
+    /**
+     * Plays the PC's file at another quality ([height] 0: the original), from where it is now. The PC encodes from that
+     * point, so the picture comes back after a couple of seconds.
+     */
+    fun setQuality(height: Int) {
+        val uri = currentUri ?: return
+        val target = shared.streamUrlAt(uri, height.takeIf { it > 0 }) ?: return
+        pickedHeight = height
+        if (target == uri) return
+        val position = _engine.value?.progress?.value?.positionMs ?: 0
+        saveNow()
+        currentUri = target
+        viewModelScope.launch { start(target, startAtMs = position) }
+    }
+
+    /** [startAtMs]: a switch of quality, which goes on from there without asking anything. */
+    private suspend fun start(uri: String, mediaFileId: Long? = null, autoResume: Boolean = false, startAtMs: Long? = null) {
         _ui.update { it.copy(phase = PlayerPhase.Loading, chapters = ChapterNavigator(emptyList())) }
         val settings = settingsRepository.settings.first()
 
@@ -197,13 +225,16 @@ class PlayerViewModel @Inject constructor(
         applyLiveSettings(engine, settings)
 
         tracker = ResumeTracker(prepared.request.mediaFileId, watchStateStore, prepared.watchState)
-        val prompt = prepared.resumePromptMs
+        val prompt = prepared.resumePromptMs.takeIf { startAtMs == null }
         // Moving on to the next file of a queue picks up where it was left without asking again
         val resumeNow = autoResume && prompt != null
+        val request = if (startAtMs == null) prepared.request
+        // Another quality has other tracks (a smaller version carries one audio track): the language choice picks again
+        else prepared.request.copy(savedAudioIndex = null, savedSubtitleIndex = null)
         engine.open(
-            prepared.request.copy(
+            request.copy(
                 playWhenReady = prompt == null || resumeNow,
-                startPositionMs = if (resumeNow) prompt!! else 0
+                startPositionMs = startAtMs ?: if (resumeNow) prompt!! else 0
             )
         )
 
@@ -212,7 +243,8 @@ class PlayerViewModel @Inject constructor(
                 phase = if (prompt != null && !resumeNow) PlayerPhase.ResumePrompt(prompt) else PlayerPhase.Playing,
                 title = prepared.request.title,
                 displayMode = prepared.displayMode,
-                castFileId = prepared.request.mediaFileId.takeIf { id -> id > 0 }
+                castFileId = prepared.request.mediaFileId.takeIf { id -> id > 0 },
+                quality = shared.qualities(uri)
             )
         }
         loadChapters(uri, engine)
@@ -319,6 +351,8 @@ class PlayerViewModel @Inject constructor(
         boundEngine = null
         _engine.value = null
         currentUri = null
+        openedUri = null
+        pickedHeight = null
         currentMediaFileId = null
         queue = null
         _ui.update { it.copy(queue = null, upNextCancelled = false) }

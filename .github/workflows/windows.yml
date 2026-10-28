@@ -28,6 +28,14 @@ jobs:
           Expand-Archive vlc.zip -DestinationPath vlc
           echo "VLC_DIR=$PWD\vlc\vlc-3.0.21" >> $env:GITHUB_ENV
 
+      # ffmpeg makes the smaller versions for phones and TVs (transcoding with NVENC / Quick Sync / AMF / x264)
+      - name: Fetch ffmpeg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg
+          echo "FFMPEG_DIR=$PWD\ffmpeg\ffmpeg-7.1.1-essentials_build\bin" >> $env:GITHUB_ENV
+
       - name: Build installer
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
